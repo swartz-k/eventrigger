@@ -1,6 +1,0 @@
-apiVersion: core.eventrigger.com/v1
-kind: Sensor
-metadata:
-  name: sensor-sample
-spec:
-  # TODO(user): Add fields here

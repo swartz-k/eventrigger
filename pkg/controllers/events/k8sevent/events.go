@@ -1,9 +1,10 @@
-package events
+package k8sevent
 
 import (
 	"context"
 	"eventrigger.com/operator/common/consts"
 	"eventrigger.com/operator/common/utils/k8s"
+	"eventrigger.com/operator/pkg/controllers/events/common"
 	"fmt"
 	"github.com/pkg/errors"
 	"github.com/viney-shih/go-lock"
@@ -23,13 +24,14 @@ import (
 type eventController struct {
 	Cfg                       *rest.Config
 	ClientSet                 *kubernetes.Clientset
+	MonitorNamespaces         map[string]string
 	EventInformerCache        map[k8s.CacheKey]informerCoreV1.EventInformer
 	EventNamespaceListerCache map[k8s.CacheKey]listerCoreV1.EventNamespaceLister
 	EventInformerMuCache      map[k8s.CacheKey]*lock.CASMutex
 	EventInformerCacheRW      *lock.CASMutex
 }
 
-func NewEventController() (controller Controller, err error) {
+func NewEventController() (controller common.Controller, err error) {
 	c := &eventController{
 		EventInformerCache:        map[k8s.CacheKey]informerCoreV1.EventInformer{},
 		EventNamespaceListerCache: map[k8s.CacheKey]listerCoreV1.EventNamespaceLister{},
@@ -92,14 +94,14 @@ func (c *eventController) GetEventsInformer(ctx context.Context) (informerCoreV1
 	return informer.(informerCoreV1.EventInformer), lister.(listerCoreV1.EventNamespaceLister), nil
 }
 
-func (c *eventController) Run(ctx context.Context) error {
+func (c *eventController) Run(ctx context.Context, monitorChannel chan common.Monitor) error {
 	informer, _, err := c.GetEventsInformer(ctx)
 	if err != nil {
 		return err
 	}
 	defer runtime.HandleCrash()
-	fmt.Println("eventcontroller running")
-	fmt.Println("%+v", c.EventInformerCache)
+	fmt.Println("event controller running")
+	fmt.Printf("%+v\n", c.EventInformerCache)
 	informer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			event, ok := obj.(*v1.Event)
@@ -108,7 +110,52 @@ func (c *eventController) Run(ctx context.Context) error {
 			}
 			fmt.Printf("name: %s, type: %s, source: %s\n", event.Name, event.Type, event.Source)
 			fmt.Printf("involved kind: %s, name: %s, version: %s\n", event.InvolvedObject.Kind, event.InvolvedObject.Name, event.InvolvedObject.APIVersion)
-			fmt.Printf("involved kind: %s, name: %s, version: %s\n", event.Reason, event.Message)
+		},
+	})
+	return nil
+}
+
+// SendEvent when new monitor namespace has event this should be checked filtered and sent
+func (c *eventController) SendEvent(ctx context.Context) error {
+	informer, _, err := c.GetEventsInformer(ctx)
+	if err != nil {
+		return err
+	}
+	defer runtime.HandleCrash()
+	fmt.Println("event controller running")
+	fmt.Printf("%+v\n", c.EventInformerCache)
+	informer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			event, ok := obj.(*v1.Event)
+			if !ok {
+				fmt.Println("failed")
+			}
+			fmt.Printf("name: %s, type: %s, source: %s\n", event.Name, event.Type, event.Source)
+			fmt.Printf("involved kind: %s, name: %s, version: %s\n", event.InvolvedObject.Kind, event.InvolvedObject.Name, event.InvolvedObject.APIVersion)
+			fmt.Printf("involved kind: %s, name: %s, version: %s\n", event.Reason, event.Message, event.APIVersion)
+		},
+	})
+	return nil
+}
+
+// UpdateMonitor when operator get new CRD, this should be checked
+func (c *eventController) UpdateMonitor(ctx context.Context) error {
+	informer, _, err := c.GetEventsInformer(ctx)
+	if err != nil {
+		return err
+	}
+	defer runtime.HandleCrash()
+	fmt.Println("event controller running")
+	fmt.Printf("%+v\n", c.EventInformerCache)
+	informer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			event, ok := obj.(*v1.Event)
+			if !ok {
+				fmt.Println("failed")
+			}
+			fmt.Printf("name: %s, type: %s, source: %s\n", event.Name, event.Type, event.Source)
+			fmt.Printf("involved kind: %s, name: %s, version: %s\n", event.InvolvedObject.Kind, event.InvolvedObject.Name, event.InvolvedObject.APIVersion)
+			fmt.Printf("reason: %s, message: %s, owner: %+v\n", event.Reason, event.Message, event.OwnerReferences)
 		},
 	})
 	return nil

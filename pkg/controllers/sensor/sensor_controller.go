@@ -18,6 +18,7 @@ package sensor
 
 import (
 	"context"
+	"eventrigger.com/operator/pkg/controllers/events/common"
 	"go.uber.org/zap"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -40,9 +41,10 @@ const (
 
 // SensorReconciler reconciles a Sensor object
 type SensorReconciler struct {
-	Client client.Client
-	Scheme *runtime.Scheme
-	logger *zap.SugaredLogger
+	Client      client.Client
+	Scheme      *runtime.Scheme
+	logger      *zap.SugaredLogger
+	MonitorChan chan common.Monitor
 }
 
 //+kubebuilder:rbac:groups=core.eventrigger.com,resources=sensors,verbs=get;list;watch;create;update;patch;delete
@@ -85,16 +87,55 @@ func (r *SensorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 // reconcile does the real logic
 func (r *SensorReconciler) reconcile(ctx context.Context, sensor *corev1.Sensor) error {
+
 	log := r.logger.With("namespace", sensor.Namespace).With("sensor", sensor.Name)
-	if !sensor.DeletionTimestamp.IsZero() {
-		log.Info("deleting sensor")
-		if controllerutil.ContainsFinalizer(sensor, finalizerName) {
-			// Finalizer logic should be added here.
-			controllerutil.RemoveFinalizer(sensor, finalizerName)
+	if sensor.DeletionTimestamp.IsZero() {
+		log.Info("adding sensor")
+		controllerutil.AddFinalizer(sensor, finalizerName)
+		err := r.AddMonitor(sensor)
+		if err != nil {
+			return err
 		}
-		return nil
+	} else {
+		// The object is being deleted
+		if controllerutil.ContainsFinalizer(sensor, finalizerName) {
+			log.Info("deleting sensor")
+
+			// remove our finalizer from the list and update it.
+			controllerutil.RemoveFinalizer(sensor, finalizerName)
+			err := r.DeleteMonitor(sensor)
+
+			if err != nil {
+				return err
+			}
+		}
 	}
-	controllerutil.AddFinalizer(sensor, finalizerName)
+	return nil
+}
+
+func (r *SensorReconciler) AddMonitor(sensor *corev1.Sensor) error {
+	for _, event := range sensor.Spec.Events {
+		monitor := common.Monitor{
+			ActType:   "ADD",
+			Type:      event.Type,
+			Source:    event.Source,
+			Namespace: sensor.Namespace,
+		}
+		r.MonitorChan <- monitor
+	}
+	return nil
+}
+
+func (r *SensorReconciler) DeleteMonitor(sensor *corev1.Sensor) error {
+	for _, event := range sensor.Spec.Events {
+		monitor := common.Monitor{
+			ActType:   "DELETE",
+			Type:      event.Type,
+			Source:    event.Source,
+			Namespace: sensor.Namespace,
+		}
+		r.MonitorChan <- monitor
+	}
 	return nil
 }
 
