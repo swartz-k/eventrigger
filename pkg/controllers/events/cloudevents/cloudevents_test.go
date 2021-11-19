@@ -12,7 +12,7 @@ func Test_NewController(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	monitorChannel := make(chan common.Monitor)
+	monitorChannel := make(chan common.Event)
 	err = controller.Run(ctx, monitorChannel)
 	if err != nil {
 		t.Fatal(err)

@@ -8,8 +8,8 @@ import (
 	"github.com/Shopify/sarama"
 	ceamqp "github.com/cloudevents/sdk-go/protocol/amqp/v2"
 	"github.com/cloudevents/sdk-go/protocol/kafka_sarama/v2"
-	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
+	"go.uber.org/zap"
 
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 	"github.com/cloudevents/sdk-go/v2/client"
@@ -24,9 +24,8 @@ type controller struct {
 	Port     uint
 	Receiver *client.EventReceiver
 	Monitor  map[string]Monitor
-	Log      logr.Logger
 	// Channel
-	MonitorChannel chan common.Monitor
+	EventChannel chan common.Event
 }
 
 func NewCloudEventController(port uint) (common.Controller, error) {
@@ -36,42 +35,38 @@ func NewCloudEventController(port uint) (common.Controller, error) {
 	return c, nil
 }
 
-func (c *controller) Run(ctx context.Context, monitorChannel chan common.Monitor) error {
+func (c *controller) Run(ctx context.Context, eventChannel chan common.Event) error {
 	c.CTX = ctx
-	c.MonitorChannel = monitorChannel
+	c.EventChannel = eventChannel
 	p, err := cloudevents.NewHTTP()
 	if err != nil {
-		fmt.Printf("failed to create protocol: %s", err.Error())
+		return errors.Wrap(err, "failed to create protocol")
 	}
 
 	c.Receiver, err = cloudevents.NewHTTPReceiveHandler(c.CTX, p, c.Receive)
 	if err != nil {
-		fmt.Printf("failed to create handler: %s", err.Error())
-	}
-
-	addr := fmt.Sprintf(":%d", c.Port)
-	fmt.Printf("will listen on %s", addr)
-	if err := http.ListenAndServe(addr, c.Receiver); err != nil {
-		fmt.Printf("unable to start http server, %s", err)
 		return err
 	}
 
-	go c.ReceiveMonitor()
-
+	addr := fmt.Sprintf(":%d", c.Port)
+	zap.L().Info("will listen on ", zap.String("addr", addr))
+	if err := http.ListenAndServe(addr, c.Receiver); err != nil {
+		zap.L().Info("unable to start http server ", zap.Error(err))
+		return err
+	}
 	return nil
 }
 
 func (c *controller) Receive(event cloudevents.Event) {
 	// do something with events.
-	fmt.Printf("%s", event)
-	c.Log.V(1).Info("%+v", event)
-}
-
-func (c *controller) ReceiveMonitor() {
-	// do something with events.
-	for monitor := range c.MonitorChannel {
-		fmt.Printf("%+v", monitor)
+	comEvent := common.Event{
+		Source:  event.Source(),
+		Type:    event.Type(),
+		Version: event.SpecVersion(),
+		Data:    string(event.Data()),
 	}
+	zap.L().Info("cloud events receive ", zap.Any("event", event))
+	c.EventChannel <- comEvent
 }
 
 // NewMQTTMonitor new MQTT monitor
@@ -90,7 +85,7 @@ func (c *controller) NewMQTTMonitor(host, node string, opts []ceamqp.Option) err
 		return errors.Wrap(err, "create client")
 	}
 	err = cli.StartReceiver(context.Background(), func(e cloudevents.Event) {
-		c.Log.V(1).Info("==== Got CloudEvent\n%+v\n----\n", e)
+		zap.L().Info("==== Got CloudEvent\n%+v\n----\n", zap.Any("event", e))
 	})
 
 	if err != nil {
@@ -117,7 +112,7 @@ func (c *controller) NewKafkaMonitor(brokers []string, group, topic string) erro
 		return errors.Wrap(err, "create client")
 	}
 	err = cli.StartReceiver(context.Background(), func(e cloudevents.Event) {
-		c.Log.V(1).Info("==== Got CloudEvent\n%+v\n----\n", e)
+		zap.L().Info("==== Got CloudEvent\n%+v\n----\n", zap.Any("event", e))
 	})
 	if err != nil {
 		return errors.Wrap(err, "Kafka receiver")

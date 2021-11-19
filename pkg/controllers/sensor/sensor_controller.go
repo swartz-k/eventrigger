@@ -18,18 +18,17 @@ package sensor
 
 import (
 	"context"
+	corev1 "eventrigger.com/operator/pkg/api/core/v1"
 	"eventrigger.com/operator/pkg/controllers/events/common"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-
-	corev1 "eventrigger.com/operator/pkg/api/v1"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 const (
@@ -92,9 +91,13 @@ func (r *SensorReconciler) reconcile(ctx context.Context, sensor *corev1.Sensor)
 	if sensor.DeletionTimestamp.IsZero() {
 		log.Info("adding sensor")
 		controllerutil.AddFinalizer(sensor, finalizerName)
-		err := r.AddMonitor(sensor)
-		if err != nil {
-			return err
+		if sensor.Status.Judgment == nil {
+			sensor.Status.Judgment = &corev1.Judgment{
+				EventId: uuid.New().String(),
+			}
+		}
+		if sensor.Status.Judgment.EventId == "" {
+			sensor.Status.Judgment.EventId = uuid.New().String()
 		}
 	} else {
 		// The object is being deleted
@@ -103,38 +106,8 @@ func (r *SensorReconciler) reconcile(ctx context.Context, sensor *corev1.Sensor)
 
 			// remove our finalizer from the list and update it.
 			controllerutil.RemoveFinalizer(sensor, finalizerName)
-			err := r.DeleteMonitor(sensor)
 
-			if err != nil {
-				return err
-			}
 		}
-	}
-	return nil
-}
-
-func (r *SensorReconciler) AddMonitor(sensor *corev1.Sensor) error {
-	for _, event := range sensor.Spec.Events {
-		monitor := common.Monitor{
-			ActType:   "ADD",
-			Type:      event.Type,
-			Source:    event.Source,
-			Namespace: sensor.Namespace,
-		}
-		r.MonitorChan <- monitor
-	}
-	return nil
-}
-
-func (r *SensorReconciler) DeleteMonitor(sensor *corev1.Sensor) error {
-	for _, event := range sensor.Spec.Events {
-		monitor := common.Monitor{
-			ActType:   "DELETE",
-			Type:      event.Type,
-			Source:    event.Source,
-			Namespace: sensor.Namespace,
-		}
-		r.MonitorChan <- monitor
 	}
 	return nil
 }

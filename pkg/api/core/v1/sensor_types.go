@@ -23,8 +23,6 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-// +genclient
-
 // Event Support CloudEvents && Events
 type Event struct {
 	// Source is a unique name of this dependency
@@ -61,9 +59,9 @@ type Trigger struct {
 // SensorSpec defines the desired state of Sensor
 type SensorSpec struct {
 	// Foo is an example field of Sensor. Edit sensor_types.go to remove/update
-	Events []Event `json:"events" protobuf:"bytes,1,name=events"`
+	Event Event `json:"event" protobuf:"bytes,1,name=event"`
 	// Triggers is a list of the things that this sensor evokes. These are the outputs from this sensor.
-	Triggers []Trigger `json:"triggers" protobuf:"bytes,2,rep,name=triggers"`
+	Trigger Trigger `json:"trigger" protobuf:"bytes,2,rep,name=trigger"`
 }
 
 // SensorStatus defines the observed state of Sensor
@@ -73,27 +71,26 @@ type SensorStatus struct {
 	Status `json:",inline" protobuf:"bytes,1,opt,name=status"`
 }
 
-//+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
-
-// Sensor is the Schema for the sensors API
+// Sensor is the definition of a sensor resource
+// +genclient
+// +genclient:noStatus
+// +kubebuilder:resource:shortName=sn
+// +kubebuilder:subresource:status
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+// +k8s:openapi-gen=true
 type Sensor struct {
 	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
+	metav1.ObjectMeta `json:"metadata" protobuf:"bytes,1,opt,name=metadata"`
 
-	Spec   SensorSpec   `json:"spec,omitempty"`
-	Status SensorStatus `json:"status,omitempty"`
+	Spec SensorSpec `json:"spec" protobuf:"bytes,2,opt,name=spec"`
+	// +optional
+	Status SensorStatus `json:"status,omitempty" protobuf:"bytes,3,opt,name=status"`
 }
 
-//+kubebuilder:object:root=true
-
-// SensorList contains a list of Sensor
+// SensorList is the list of Sensor resources
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type SensorList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []Sensor `json:"items"`
-}
-
-func init() {
-	SchemeBuilder.Register(&Sensor{}, &SensorList{})
 }

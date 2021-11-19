@@ -3,10 +3,11 @@ package common
 import "context"
 
 type Event struct {
-	Source  string `json:"source" yaml:"source"`
-	Type    string `json:"type" yaml:"type"`
-	Version string `json:"version" yaml:"version"`
-	Data    string `json:"data" yaml:"data"`
+	Namespace string `json:"namespace" yaml:"namespace"`
+	Source    string `json:"source" yaml:"source"`
+	Type      string `json:"type" yaml:"type"`
+	Version   string `json:"version" yaml:"version"`
+	Data      string `json:"data" yaml:"data"`
 }
 
 type Monitor struct {
@@ -19,5 +20,5 @@ type Monitor struct {
 
 // Controller for listen and receive events like request, eg: cloud events、kubernetes events
 type Controller interface {
-	Run(ctx context.Context, monitorChannel chan Monitor) error
+	Run(ctx context.Context, eventChannel chan Event) error
 }

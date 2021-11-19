@@ -13,13 +13,15 @@ spec:
     kind: Sensor
     listKind: SensorList
     plural: sensors
+    shortNames:
+    - sn
     singular: sensor
   scope: Namespaced
   versions:
   - name: v1
     schema:
       openAPIV3Schema:
-        description: Sensor is the Schema for the sensors API
+        description: Sensor is the definition of a sensor resource
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -36,138 +38,281 @@ spec:
           spec:
             description: SensorSpec defines the desired state of Sensor
             properties:
-              events:
+              event:
                 description: Foo is an example field of Sensor. Edit sensor_types.go
                   to remove/update
-                items:
-                  description: Event Support CloudEvents && Events
-                  properties:
-                    contentType:
-                      description: ContentType
-                      type: string
-                    source:
-                      description: Source is a unique name of this dependency
-                      type: string
-                    type:
-                      description: Type is a unique name of this dependency
-                      type: string
-                  required:
-                  - contentType
-                  - source
-                  - type
-                  type: object
-                type: array
-              triggers:
+                properties:
+                  contentType:
+                    description: ContentType
+                    type: string
+                  source:
+                    description: Source is a unique name of this dependency
+                    type: string
+                  type:
+                    description: Type is a unique name of this dependency
+                    type: string
+                required:
+                - contentType
+                - source
+                - type
+                type: object
+              trigger:
                 description: Triggers is a list of the things that this sensor evokes.
                   These are the outputs from this sensor.
-                items:
-                  description: Trigger is an action taken, output produced, an events
-                    created, a message sent
-                  properties:
-                    template:
-                      description: Template describes the trigger specification.
-                      properties:
-                        conditions:
-                          description: 'Conditions is the conditions to execute the
-                            trigger. For example: "(dep01 || dep02) && dep04"'
-                          type: string
-                        http:
-                          properties:
-                            headers:
-                              additionalProperties:
+                properties:
+                  template:
+                    description: Template describes the trigger specification.
+                    properties:
+                      conditions:
+                        description: 'Conditions is the conditions to execute the
+                          trigger. For example: "(dep01 || dep02) && dep04"'
+                        type: string
+                      http:
+                        properties:
+                          headers:
+                            additionalProperties:
+                              type: string
+                            description: Headers for the HTTP request.
+                            type: object
+                          method:
+                            description: Method refers to the type of the HTTP request.
+                              Refer https://golang.org/src/net/http/method.go for
+                              more info. Default value is POST.
+                            type: string
+                          timeout:
+                            description: Timeout refers to the HTTP request timeout
+                              in seconds. Default value is 60 seconds.
+                            format: int64
+                            type: integer
+                          url:
+                            description: URL refers to the URL to send HTTP request
+                              to.
+                            type: string
+                        required:
+                        - url
+                        type: object
+                      k8s:
+                        description: StandardK8STrigger refers to the trigger designed
+                          to create or update a generic Kubernetes resource.
+                        properties:
+                          liveObject:
+                            description: LiveObject specifies whether the resource
+                              should be directly fetched from K8s instead of being
+                              marshaled from the resource artifact. If set to true,
+                              the resource artifact must contain the information required
+                              to uniquely identify the resource in the cluster, that
+                              is, you must specify "apiVersion", "kind" as well as
+                              "name" and "namespace" meta data. Only valid for operation
+                              type `update`
+                            type: boolean
+                          operation:
+                            description: Operation refers to the type of operation
+                              performed on the k8s resource. Default value is Create.
+                            type: string
+                          patchStrategy:
+                            description: 'PatchStrategy controls the K8s object patching
+                              strategy when the trigger operation is specified as
+                              patch. possible values: "application/json-patch+json"
+                              "application/merge-patch+json" "application/strategic-merge-patch+json"
+                              "application/apply-patch+yaml". Defaults to "application/merge-patch+json"'
+                            type: string
+                          source:
+                            description: Source of the K8s resource file(s)
+                            properties:
+                              configmap:
+                                description: Configmap that stores the artifact
+                                properties:
+                                  key:
+                                    description: The key to select.
+                                    type: string
+                                  name:
+                                    description: 'Name of the referent. More info:
+                                      https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                      TODO: Add other useful fields. apiVersion, kind,
+                                      uid?'
+                                    type: string
+                                  optional:
+                                    description: Specify whether the ConfigMap or
+                                      its key must be defined
+                                    type: boolean
+                                required:
+                                - key
+                                type: object
+                              file:
+                                description: File artifact is artifact stored in a
+                                  file
+                                properties:
+                                  path:
+                                    type: string
+                                type: object
+                              inline:
+                                description: Inline artifact is embedded in sensor
+                                  spec as a string
                                 type: string
-                              description: Headers for the HTTP request.
-                              type: object
-                            method:
-                              description: Method refers to the type of the HTTP request.
-                                Refer https://golang.org/src/net/http/method.go for
-                                more info. Default value is POST.
-                              type: string
-                            timeout:
-                              description: Timeout refers to the HTTP request timeout
-                                in seconds. Default value is 60 seconds.
-                              format: int64
-                              type: integer
-                            url:
-                              description: URL refers to the URL to send HTTP request
-                                to.
-                              type: string
-                          required:
-                          - url
-                          type: object
-                        k8s:
-                          description: StandardK8STrigger refers to the trigger designed
-                            to create or update a generic Kubernetes resource.
-                          properties:
-                            liveObject:
-                              description: LiveObject specifies whether the resource
-                                should be directly fetched from K8s instead of being
-                                marshaled from the resource artifact. If set to true,
-                                the resource artifact must contain the information
-                                required to uniquely identify the resource in the
-                                cluster, that is, you must specify "apiVersion", "kind"
-                                as well as "name" and "namespace" meta data. Only
-                                valid for operation type `update`
-                              type: boolean
-                            operation:
-                              description: Operation refers to the type of operation
-                                performed on the k8s resource. Default value is Create.
-                              type: string
-                            patchStrategy:
-                              description: 'PatchStrategy controls the K8s object
-                                patching strategy when the trigger operation is specified
-                                as patch. possible values: "application/json-patch+json"
-                                "application/merge-patch+json" "application/strategic-merge-patch+json"
-                                "application/apply-patch+yaml". Defaults to "application/merge-patch+json"'
-                              type: string
-                          type: object
-                        name:
-                          description: Name is a unique name of the action to take.
-                          type: string
-                      required:
-                      - name
-                      type: object
-                  type: object
-                type: array
+                              resource:
+                                description: Resource is generic template for K8s
+                                  resource
+                                properties:
+                                  value:
+                                    format: byte
+                                    type: string
+                                required:
+                                - value
+                                type: object
+                              s3:
+                                description: S3 compliant artifact
+                                properties:
+                                  accessKey:
+                                    description: SecretKeySelector selects a key of
+                                      a Secret.
+                                    properties:
+                                      key:
+                                        description: The key of the secret to select
+                                          from.  Must be a valid secret key.
+                                        type: string
+                                      name:
+                                        description: 'Name of the referent. More info:
+                                          https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                          TODO: Add other useful fields. apiVersion,
+                                          kind, uid?'
+                                        type: string
+                                      optional:
+                                        description: Specify whether the Secret or
+                                          its key must be defined
+                                        type: boolean
+                                    required:
+                                    - key
+                                    type: object
+                                  bucket:
+                                    description: S3Bucket contains information to
+                                      describe an S3 Bucket
+                                    properties:
+                                      key:
+                                        type: string
+                                      name:
+                                        type: string
+                                    required:
+                                    - name
+                                    type: object
+                                  endpoint:
+                                    type: string
+                                  events:
+                                    items:
+                                      type: string
+                                    type: array
+                                  filter:
+                                    description: S3Filter represents filters to apply
+                                      to bucket notifications for specifying constraints
+                                      on objects
+                                    properties:
+                                      prefix:
+                                        type: string
+                                      suffix:
+                                        type: string
+                                    required:
+                                    - prefix
+                                    - suffix
+                                    type: object
+                                  insecure:
+                                    type: boolean
+                                  metadata:
+                                    additionalProperties:
+                                      type: string
+                                    type: object
+                                  region:
+                                    type: string
+                                  secretKey:
+                                    description: SecretKeySelector selects a key of
+                                      a Secret.
+                                    properties:
+                                      key:
+                                        description: The key of the secret to select
+                                          from.  Must be a valid secret key.
+                                        type: string
+                                      name:
+                                        description: 'Name of the referent. More info:
+                                          https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                          TODO: Add other useful fields. apiVersion,
+                                          kind, uid?'
+                                        type: string
+                                      optional:
+                                        description: Specify whether the Secret or
+                                          its key must be defined
+                                        type: boolean
+                                    required:
+                                    - key
+                                    type: object
+                                required:
+                                - accessKey
+                                - bucket
+                                - endpoint
+                                - secretKey
+                                type: object
+                              url:
+                                description: URL to fetch the artifact from
+                                properties:
+                                  path:
+                                    description: Path is the complete URL
+                                    type: string
+                                  verifyCert:
+                                    description: VerifyCert decides whether the connection
+                                      is secure or not
+                                    type: boolean
+                                required:
+                                - path
+                                type: object
+                            type: object
+                        type: object
+                      name:
+                        description: Name is a unique name of the action to take.
+                        type: string
+                    required:
+                    - name
+                    type: object
+                type: object
             required:
-            - events
-            - triggers
+            - event
+            - trigger
             type: object
           status:
             description: SensorStatus defines the observed state of Sensor
             properties:
-              conditions:
-                description: Conditions are the latest available observations of a
-                  resource's current state.
-                items:
-                  description: Condition contains details about resource state
-                  properties:
-                    lastTransitionTime:
-                      description: Last time the condition transitioned from one status
-                        to another.
-                      format: date-time
-                      type: string
-                    message:
-                      description: Human-readable message indicating details about
-                        last transition.
-                      type: string
-                    reason:
-                      description: Unique, this should be a short, machine understandable
-                        string that gives the reason for condition's last transition.
-                        For example, "ImageNotFound"
-                      type: string
-                    status:
-                      description: Condition status, True, False or Unknown.
-                      type: string
-                    type:
-                      description: Condition type.
-                      type: string
-                  required:
-                  - status
-                  - type
-                  type: object
-                type: array
+              judgment:
+                description: Judgment contains details about resource state
+                properties:
+                  eventId:
+                    description: Last time the condition transitioned from one status
+                      to another.
+                    type: string
+                  lastTransitionTime:
+                    format: date-time
+                    type: string
+                  message:
+                    description: Human-readable message indicating details about last
+                      transition.
+                    type: string
+                  reason:
+                    description: Unique, this should be a short, machine understandable
+                      string that gives the reason for condition's last transition.
+                      For example, "ImageNotFound"
+                    type: string
+                  status:
+                    description: Condition status, True, False or Unknown.
+                    type: string
+                  triggerId:
+                    type: string
+                  type:
+                    description: Condition type.
+                    type: string
+                required:
+                - status
+                - triggerId
+                - type
+                type: object
             type: object
+        required:
+        - metadata
+        - spec
         type: object
     served: true
     storage: true

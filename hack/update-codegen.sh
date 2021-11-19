@@ -20,16 +20,26 @@ set -o pipefail
 
 SCRIPT_ROOT=$(dirname "${BASH_SOURCE[0]}")
 
-echo ${SCRIPT_ROOT}
+OUTPUT_PKG=${SCRIPT_ROOT}/../pkg
+GROUP=core
+MODULE=eventrigger.com/operator
+API_PKG=pkg/api
+VERSION=v1
+GROUP_VERSION=${GROUP}:${VERSION}
+
+rm -rf ${SCRIPT_ROOT}/../pkg/generated
+
 # generate the code with:
 # --output-base    because this script should also be able to run inside the vendor dir of
 #                  k8s.io/kubernetes. The output-base is needed for the generators to output into the vendor dir
 #                  instead of the $GOPATH directly. For normal projects this can be dropped.
 bash "${SCRIPT_ROOT}"/generate-groups.sh "deepcopy,client,informer,lister" \
-  ${SCRIPT_ROOT}/pkg/ eventrigger.com/operator/pkg/api \
-  code:v1 \
+  eventrigger.com/operator/pkg/generated eventrigger.com/operator/pkg/api \
+  core:v1 \
   --output-base "$(dirname "${BASH_SOURCE[0]}")/../" \
   --go-header-file "${SCRIPT_ROOT}"/boilerplate.go.txt
 
+cp -r $(dirname "${BASH_SOURCE[0]}")/../eventrigger.com/operator/pkg $(dirname "${BASH_SOURCE[0]}")/../
+rm -rf $(dirname "${BASH_SOURCE[0]}")/../eventrigger.com/
 # To use your own boilerplate text append:
 #   --go-header-file "${SCRIPT_ROOT}"/hack/custom-boilerplate.go.txt

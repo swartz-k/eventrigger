@@ -1,6 +1,8 @@
 package v1
 
 import (
+	"eventrigger.com/operator/pkg/api/core/common"
+	corev1 "k8s.io/api/core/v1"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 )
 
@@ -17,10 +19,12 @@ const (
 
 // StandardK8STrigger is the standard Kubernetes resource trigger
 type StandardK8STrigger struct {
+	// Source of the K8s resource file(s)
+	Source *ArtifactLocation `json:"source,omitempty" protobuf:"bytes,1,opt,name=source"`
 	// Operation refers to the type of operation performed on the k8s resource.
 	// Default value is Create.
 	// +optional
-	Operation KubernetesResourceOperation `json:"operation,omitempty" protobuf:"bytes,1,opt,name=operation,casttype=KubernetesResourceOperation"`
+	Operation KubernetesResourceOperation `json:"operation,omitempty" protobuf:"bytes,2,opt,name=operation,casttype=KubernetesResourceOperation"`
 	// PatchStrategy controls the K8s object patching strategy when the trigger operation is specified as patch.
 	// possible values:
 	// "application/json-patch+json"
@@ -29,7 +33,7 @@ type StandardK8STrigger struct {
 	// "application/apply-patch+yaml".
 	// Defaults to "application/merge-patch+json"
 	// +optional
-	PatchStrategy k8stypes.PatchType `json:"patchStrategy,omitempty" protobuf:"bytes,2,opt,name=patchStrategy,casttype=k8s.io/apimachinery/pkg/types.PatchType"`
+	PatchStrategy k8stypes.PatchType `json:"patchStrategy,omitempty" protobuf:"bytes,3,opt,name=patchStrategy,casttype=k8s.io/apimachinery/pkg/types.PatchType"`
 	// LiveObject specifies whether the resource should be directly fetched from K8s instead
 	// of being marshaled from the resource artifact. If set to true, the resource artifact
 	// must contain the information required to uniquely identify the resource in the cluster,
@@ -37,7 +41,7 @@ type StandardK8STrigger struct {
 	// data.
 	// Only valid for operation type `update`
 	// +optional
-	LiveObject bool `json:"liveObject,omitempty" protobuf:"varint,3,opt,name=liveObject"`
+	LiveObject bool `json:"liveObject,omitempty" protobuf:"varint,4,opt,name=liveObject"`
 }
 
 type HTTPTrigger struct {
@@ -56,4 +60,20 @@ type HTTPTrigger struct {
 	// Headers for the HTTP request.
 	// +optional
 	Headers map[string]string `json:"headers,omitempty" protobuf:"bytes,4,rep,name=headers"`
+}
+
+// ArtifactLocation describes the source location for an external artifact
+type ArtifactLocation struct {
+	// S3 compliant artifact
+	S3 *S3Artifact `json:"s3,omitempty" protobuf:"bytes,1,opt,name=s3"`
+	// Inline artifact is embedded in sensor spec as a string
+	Inline *string `json:"inline,omitempty" protobuf:"bytes,2,opt,name=inline"`
+	// File artifact is artifact stored in a file
+	File *FileArtifact `json:"file,omitempty" protobuf:"bytes,3,opt,name=file"`
+	// URL to fetch the artifact from
+	URL *URLArtifact `json:"url,omitempty" protobuf:"bytes,4,opt,name=url"`
+	// Configmap that stores the artifact
+	Configmap *corev1.ConfigMapKeySelector `json:"configmap,omitempty" protobuf:"bytes,5,opt,name=configmap"`
+	// Resource is generic template for K8s resource
+	Resource *common.Resource `json:"resource,omitempty" protobuf:"bytes,6,opt,name=resource"`
 }

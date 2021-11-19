@@ -8,12 +8,14 @@ import (
 
 func Test_NewEventController(t *testing.T) {
 	ctx := context.Background()
-	controller, err := NewEventController()
+	stopChan := make(<-chan struct{})
+
+	controller, err := NewEventController(stopChan)
 	if err != nil {
 		t.Fatal(err)
 	}
-	monitorChannel := make(chan common.Monitor)
-	err = controller.Run(ctx, monitorChannel)
+	eventChannel := make(chan common.Event)
+	err = controller.Run(ctx, eventChannel)
 	if err != nil {
 		t.Fatal(err)
 	}

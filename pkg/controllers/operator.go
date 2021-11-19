@@ -19,13 +19,15 @@ package controllers
 import (
 	"context"
 	"eventrigger.com/operator/common/sync/errsgroup"
+	eventriggerv1 "eventrigger.com/operator/pkg/api/core/v1"
 	"eventrigger.com/operator/pkg/controllers/actor"
 	"eventrigger.com/operator/pkg/controllers/events/cloudevents"
 	"eventrigger.com/operator/pkg/controllers/events/common"
 	"eventrigger.com/operator/pkg/controllers/events/k8sevent"
 	"fmt"
-	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -38,10 +40,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	corev1 "eventrigger.com/operator/pkg/api/v1"
-	eventriggerv1 "eventrigger.com/operator/pkg/api/v1"
 	"eventrigger.com/operator/pkg/controllers/sensor"
 	//+kubebuilder:scaffold:imports
 )
@@ -55,7 +54,7 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(eventriggerv1.AddToScheme(scheme))
-	utilruntime.Must(corev1.AddToScheme(scheme))
+	utilruntime.Must(eventriggerv1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 
@@ -88,8 +87,6 @@ type Operator struct {
 	MonitorChannel chan common.Monitor
 	EventChannel   chan common.Event
 	stopCh         <-chan struct{}
-
-	Log logr.Logger
 }
 
 func NewOperator(options *OperatorOptions) (op *Operator, err error) {
@@ -115,26 +112,27 @@ func NewOperator(options *OperatorOptions) (op *Operator, err error) {
 		}
 	}
 	op = &Operator{
-		CTX:     context.Background(),
-		Options: *options,
-		Log:     zap.New(),
+		CTX:            context.Background(),
+		Options:        *options,
+		EventChannel:   make(chan common.Event, 100),
+		MonitorChannel: make(chan common.Monitor, 100),
 	}
-	op.CloudEventsController, err = cloudevents.NewCloudEventController(op.Options.CloudEventsPort)
+	op.CloudEventsController, err = cloudevents.NewCloudEventController(
+		op.Options.CloudEventsPort)
 	if err != nil {
 		return nil, errors.Wrap(err, "init cloud events controller")
 	}
 
-	op.EventsController, err = k8sevent.NewEventController()
+	op.EventsController, err = k8sevent.NewEventController(op.stopCh)
 	if err != nil {
 		return nil, errors.Wrap(err, "init kubernetes events controller")
 	}
 
-	op.Actor, err = actor.NewRunner()
+	op.Actor, err = actor.NewRunner(op.CTX, op.EventChannel, op.stopCh)
 	if err != nil {
 		return nil, errors.Wrap(err, "init kubernetes actor runner")
 	}
 
-	ctrl.SetLogger(op.Log)
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		MetricsBindAddress:     fmt.Sprintf(":%d", op.Options.MetricsPort),
@@ -168,13 +166,36 @@ func NewOperator(options *OperatorOptions) (op *Operator, err error) {
 
 func (op *Operator) Run() error {
 
+	var cfg zap.Config = zap.NewProductionConfig()
+
+	cfg.EncoderConfig.EncodeTime = zapcore.RFC3339TimeEncoder
+
+	logger, err := cfg.Build()
+	if err != nil {
+		return err
+	}
+	defer logger.Sync()
+
+	undo := zap.ReplaceGlobals(logger)
+	defer undo()
+
 	var eg errsgroup.Group
 	eg.Go(func() error {
-		return op.CloudEventsController.Run(op.CTX, op.MonitorChannel)
+		err := op.CloudEventsController.Run(op.CTX, op.EventChannel)
+		zap.L().Info("cloud events controller", zap.Error(err))
+		return err
 	})
 
 	eg.Go(func() error {
-		return op.EventsController.Run(op.CTX, op.MonitorChannel)
+		err := op.EventsController.Run(op.CTX, op.EventChannel)
+		zap.L().Info("k8s events controller", zap.Error(err))
+		return err
+	})
+
+	eg.Go(func() error {
+		err := op.Actor.Run(op.CTX, op.EventChannel)
+		zap.L().Info("actor run", zap.Error(err))
+		return err
 	})
 
 	return eg.WaitWithStopChannel(op.stopCh)
