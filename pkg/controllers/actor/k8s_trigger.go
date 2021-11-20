@@ -56,7 +56,6 @@ func K8STriggerExecute(ctx context.Context, dynamicClient dynamic.Interface, op 
 		labels["event.eventrigger.com/action-timestamp"] = strconv.Itoa(int(time.Now().UnixNano() / int64(time.Millisecond)))
 		obj.SetLabels(labels)
 		return dynamicClient.Resource(gvr).Namespace(namespace).Create(ctx, obj, metav1.CreateOptions{})
-
 	case v1.Delete:
 		_, err := dynamicClient.Resource(gvr).Namespace(namespace).Get(ctx, obj.GetName(), metav1.GetOptions{})
 
@@ -72,7 +71,6 @@ func K8STriggerExecute(ctx context.Context, dynamicClient dynamic.Interface, op 
 			return nil, errors.Errorf("failed to delete object. err: %+v\n", err)
 		}
 		return nil, nil
-
 	default:
 		return nil, errors.Errorf("unknown operation type %s", string(op))
 	}
