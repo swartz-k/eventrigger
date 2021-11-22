@@ -24,6 +24,7 @@ import (
 	"eventrigger.com/operator/pkg/controllers/actor"
 	"eventrigger.com/operator/pkg/controllers/events/cloudevents"
 	"eventrigger.com/operator/pkg/controllers/events/k8sevent"
+	"eventrigger.com/operator/pkg/controllers/monitor"
 	"fmt"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
@@ -76,6 +77,9 @@ type Operator struct {
 	CTX     context.Context
 	Options OperatorOptions
 
+	// monitor
+	MonitorManager monitor.Manager
+
 	// event monitor
 	CloudEventsController event.Controller
 	EventsController      event.Controller
@@ -84,7 +88,7 @@ type Operator struct {
 	// actor
 	Actor          *actor.Runner
 	Cfg            *rest.Config
-	MonitorChannel chan event.Monitor
+	MonitorChannel chan eventriggerv1.Monitor
 	EventChannel   chan event.Event
 	stopCh         <-chan struct{}
 }
@@ -115,7 +119,7 @@ func NewOperator(options *OperatorOptions) (op *Operator, err error) {
 		CTX:            context.Background(),
 		Options:        *options,
 		EventChannel:   make(chan event.Event, 100),
-		MonitorChannel: make(chan event.Monitor, 100),
+		MonitorChannel: make(chan eventriggerv1.Monitor, 100),
 	}
 	op.CloudEventsController, err = cloudevents.NewCloudEventController(
 		op.Options.CloudEventsPort)
@@ -131,6 +135,11 @@ func NewOperator(options *OperatorOptions) (op *Operator, err error) {
 	op.Actor, err = actor.NewRunner(op.CTX, op.EventChannel, op.stopCh)
 	if err != nil {
 		return nil, errors.Wrap(err, "init kubernetes actor runner")
+	}
+
+	op.MonitorManager, err = monitor.NewManager(op.CTX, op.stopCh, op.MonitorChannel)
+	if err != nil {
+		return nil, errors.Wrap(err, "init monitor manager")
 	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
@@ -181,6 +190,12 @@ func (op *Operator) Run() error {
 
 	var eg errsgroup.Group
 	eg.Go(func() error {
+		err := op.MonitorManager.Run()
+		zap.L().Info("monitor manager", zap.Error(err))
+		return err
+	})
+
+	eg.Go(func() error {
 		err := op.CloudEventsController.Run(op.CTX, op.EventChannel)
 		zap.L().Info("cloud events controller", zap.Error(err))
 		return err
@@ -193,7 +208,7 @@ func (op *Operator) Run() error {
 	})
 
 	eg.Go(func() error {
-		err := op.Actor.Run(op.CTX, op.EventChannel)
+		err := op.Actor.Run(op.CTX)
 		zap.L().Info("actor run", zap.Error(err))
 		return err
 	})

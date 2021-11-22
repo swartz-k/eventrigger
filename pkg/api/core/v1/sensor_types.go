@@ -59,9 +59,11 @@ type Trigger struct {
 // SensorSpec defines the desired state of Sensor
 type SensorSpec struct {
 	// Foo is an example field of Sensor. Edit sensor_types.go to remove/update
-	Event Event `json:"event" protobuf:"bytes,1,name=event"`
+	Monitor Monitor `json:"monitor"  protobuf:"bytes,1,name=monitor"`
+	// Event is an example field of Sensor. Edit sensor_types.go to remove/update
+	Event Event `json:"event" protobuf:"bytes,2,name=event"`
 	// Triggers is a list of the things that this sensor evokes. These are the outputs from this sensor.
-	Trigger Trigger `json:"trigger" protobuf:"bytes,2,rep,name=trigger"`
+	Trigger Trigger `json:"trigger" protobuf:"bytes,3,rep,name=trigger"`
 }
 
 // SensorStatus defines the observed state of Sensor

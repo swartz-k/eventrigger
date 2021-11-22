@@ -2,8 +2,8 @@ package k8sevent
 
 import (
 	"context"
-	cEvent "eventrigger.com/operator/common/event"
 	"eventrigger.com/operator/common/consts"
+	cEvent "eventrigger.com/operator/common/event"
 	"fmt"
 	"github.com/pkg/errors"
 	"github.com/viney-shih/go-lock"
@@ -36,14 +36,14 @@ type eventController struct {
 	Workqueue    workqueue.RateLimitingInterface
 	StopChan     <-chan struct{}
 
-	EventInformerCacheRW      *lock.CASMutex
+	EventInformerCacheRW *lock.CASMutex
 }
 
 func NewEventController(stopChan <-chan struct{}) (controller cEvent.Controller, err error) {
 	c := &eventController{
-		StopChan:                  stopChan,
-		Workqueue:                 workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "events"),
-		EventInformerCacheRW:      lock.NewCASMutex(),
+		StopChan:             stopChan,
+		Workqueue:            workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "events"),
+		EventInformerCacheRW: lock.NewCASMutex(),
 	}
 	kubeConfig := os.Getenv(consts.EnvDefaultKubeConfig)
 
