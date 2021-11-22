@@ -2,41 +2,41 @@ package monitor
 
 import (
 	"eventrigger.com/operator/common/event"
-	mqtt "github.com/eclipse/paho.mqtt.golang"
-	"log"
-	"net/url"
+	v1 "eventrigger.com/operator/pkg/api/core/v1"
 	"fmt"
-	"time"
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"os"
+	"time"
 )
 
 type MQTTOptions struct {
-	URI string
-	Broker string
+	URI      string
+	Broker   string
 	Username string
 	Password string
 }
 
 type MQTTRunner struct {
-	Cli mqtt.Client
+	Cli          mqtt.Client
 	EventChannel chan event.Event
 }
 
-func NewMQTTRunner(opts *MQTTOptions) (Runner, error) {
+func NewMQTTRunner(monitor *v1.MQTTMonitor) (Runner, error) {
+	m := &MQTTRunner{}
 
-	clientOpts := mqtt.NewClientOptions().AddBroker(opts.URI).
-		SetClientID(opts.Broker).SetUsername(opts.Username).SetPassword(opts.Username).SetPassword(opts.Password)
+	clientOpts := mqtt.NewClientOptions().AddBroker(monitor.URL).
+		SetUsername(monitor.Username).SetPassword(monitor.Password)
 
 	clientOpts.SetPingTimeout(1 * time.Second)
+	clientOpts.SetDefaultPublishHandler(m.EventHandler)
 
-	m := &MQTTRunner{}
 	m.Cli = mqtt.NewClient(clientOpts)
 
 	return m, nil
 }
 
 func (m *MQTTRunner) EventHandler(cli mqtt.Client, msg mqtt.Message) {
-	cli.
+	fmt.Printf("Received message: %s from topic: %s\n", msg.Payload(), msg.Topic())
 }
 
 func (m *MQTTRunner) Run(eventChannel chan event.Event) error {
@@ -47,5 +47,5 @@ func (m *MQTTRunner) Run(eventChannel chan event.Event) error {
 		fmt.Println(token.Error())
 		os.Exit(1)
 	}
-
+	return nil
 }

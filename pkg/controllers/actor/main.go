@@ -2,8 +2,8 @@ package actor
 
 import (
 	"context"
-	"eventrigger.com/operator/common/event"
 	"eventrigger.com/operator/common/consts"
+	"eventrigger.com/operator/common/event"
 	v1 "eventrigger.com/operator/pkg/api/core/v1"
 	"eventrigger.com/operator/pkg/generated/clientset/versioned"
 	"go.uber.org/zap"
@@ -111,7 +111,7 @@ func NewRunner(ctx context.Context, eventChannel chan event.Event, stopChan <-ch
 	return r, nil
 }
 
-func (r *Runner) Run(ctx context.Context, eventChannel chan event.Event) error {
+func (r *Runner) Run(ctx context.Context) error {
 	zap.L().Info("Starting workers")
 	r.InformerFactory.Start(r.StopCh)
 
