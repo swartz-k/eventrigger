@@ -2,9 +2,9 @@ package actor
 
 import (
 	"context"
+	"eventrigger.com/operator/common/event"
 	"eventrigger.com/operator/common/consts"
 	v1 "eventrigger.com/operator/pkg/api/core/v1"
-	"eventrigger.com/operator/pkg/controllers/events/common"
 	"eventrigger.com/operator/pkg/generated/clientset/versioned"
 	"go.uber.org/zap"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -32,7 +32,7 @@ type Runner struct {
 	StopCh          <-chan struct{}
 	InformerFactory externalversions.SharedInformerFactory
 	//
-	EventChannel chan common.Event
+	EventChannel chan event.Event
 	Workqueue    workqueue.RateLimitingInterface
 
 	// eventsType:sourceType
@@ -44,7 +44,7 @@ type Runner struct {
 	SensorSynced cache.InformerSynced
 }
 
-func NewRunner(ctx context.Context, eventChannel chan common.Event, stopChan <-chan struct{}) (runner *Runner, err error) {
+func NewRunner(ctx context.Context, eventChannel chan event.Event, stopChan <-chan struct{}) (runner *Runner, err error) {
 	r := &Runner{
 		CTX:          ctx,
 		EventChannel: eventChannel,
@@ -111,7 +111,7 @@ func NewRunner(ctx context.Context, eventChannel chan common.Event, stopChan <-c
 	return r, nil
 }
 
-func (r *Runner) Run(ctx context.Context, eventChannel chan common.Event) error {
+func (r *Runner) Run(ctx context.Context, eventChannel chan event.Event) error {
 	zap.L().Info("Starting workers")
 	r.InformerFactory.Start(r.StopCh)
 
@@ -242,7 +242,7 @@ func (r *Runner) syncHandler(key string) error {
 	return nil
 }
 
-func (r *Runner) DeployTrigger(id string, event common.Event) {
+func (r *Runner) DeployTrigger(id string, event event.Event) {
 	trigger, ok := r.TriggerMap[id]
 	if !ok {
 		zap.L().Info("cannot get trigger for id %s\n", zap.String("id", id))
@@ -262,7 +262,7 @@ func (r *Runner) DeployTrigger(id string, event common.Event) {
 	return
 }
 
-func (r *Runner) OperateK8sSource(trigger *v1.StandardK8STrigger, event common.Event) error {
+func (r *Runner) OperateK8sSource(trigger *v1.StandardK8STrigger, event event.Event) error {
 	if trigger == nil || trigger.Source == nil || trigger.Source.Resource == nil {
 		return errors.New("trigger source resource is nil")
 	}

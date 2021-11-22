@@ -2,7 +2,7 @@ package cloudevents
 
 import (
 	"context"
-	"eventrigger.com/operator/pkg/controllers/events/common"
+	"eventrigger.com/operator/common/event"
 	"testing"
 )
 
@@ -12,7 +12,7 @@ func Test_NewController(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	monitorChannel := make(chan common.Event)
+	monitorChannel := make(chan event.Event)
 	err = controller.Run(ctx, monitorChannel)
 	if err != nil {
 		t.Fatal(err)

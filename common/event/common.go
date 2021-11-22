@@ -1,4 +1,4 @@
-package common
+package event
 
 import "context"
 
@@ -22,3 +22,4 @@ type Monitor struct {
 type Controller interface {
 	Run(ctx context.Context, eventChannel chan Event) error
 }
+

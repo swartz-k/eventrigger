@@ -2,7 +2,7 @@ package cloudevents
 
 import (
 	"context"
-	"eventrigger.com/operator/pkg/controllers/events/common"
+	"eventrigger.com/operator/common/event"
 	"fmt"
 	"github.com/Azure/go-amqp"
 	"github.com/Shopify/sarama"
@@ -25,17 +25,17 @@ type controller struct {
 	Receiver *client.EventReceiver
 	Monitor  map[string]Monitor
 	// Channel
-	EventChannel chan common.Event
+	EventChannel chan event.Event
 }
 
-func NewCloudEventController(port uint) (common.Controller, error) {
+func NewCloudEventController(port uint) (event.Controller, error) {
 	c := &controller{
 		Port: port,
 	}
 	return c, nil
 }
 
-func (c *controller) Run(ctx context.Context, eventChannel chan common.Event) error {
+func (c *controller) Run(ctx context.Context, eventChannel chan event.Event) error {
 	c.CTX = ctx
 	c.EventChannel = eventChannel
 	p, err := cloudevents.NewHTTP()
@@ -57,15 +57,15 @@ func (c *controller) Run(ctx context.Context, eventChannel chan common.Event) er
 	return nil
 }
 
-func (c *controller) Receive(event cloudevents.Event) {
+func (c *controller) Receive(cloudevent cloudevents.Event) {
 	// do something with events.
-	comEvent := common.Event{
-		Source:  event.Source(),
-		Type:    event.Type(),
-		Version: event.SpecVersion(),
-		Data:    string(event.Data()),
+	comEvent := event.Event{
+		Source:  cloudevent.Source(),
+		Type:    cloudevent.Type(),
+		Version: cloudevent.SpecVersion(),
+		Data:    string(cloudevent.Data()),
 	}
-	zap.L().Info("cloud events receive ", zap.Any("event", event))
+	zap.L().Info("cloud events receive ", zap.Any("event", cloudevent))
 	c.EventChannel <- comEvent
 }
 

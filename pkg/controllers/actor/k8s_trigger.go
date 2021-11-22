@@ -2,10 +2,10 @@ package actor
 
 import (
 	"context"
+	eventscommon "eventrigger.com/operator/common/event"
 	"eventrigger.com/operator/common/utils/k8s"
 	"eventrigger.com/operator/pkg/api/core/common"
 	v1 "eventrigger.com/operator/pkg/api/core/v1"
-	eventscommon "eventrigger.com/operator/pkg/controllers/events/common"
 	"fmt"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"

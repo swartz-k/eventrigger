@@ -2,9 +2,8 @@ package k8sevent
 
 import (
 	"context"
+	cEvent "eventrigger.com/operator/common/event"
 	"eventrigger.com/operator/common/consts"
-	"eventrigger.com/operator/common/utils/k8s"
-	"eventrigger.com/operator/pkg/controllers/events/common"
 	"fmt"
 	"github.com/pkg/errors"
 	"github.com/viney-shih/go-lock"
@@ -13,7 +12,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
-	informerCoreV1 "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes"
 	listerCoreV1 "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/util/workqueue"
@@ -34,23 +32,17 @@ type eventController struct {
 	EventLister     listerCoreV1.EventLister
 	EventSynced     cache.InformerSynced
 
-	EventChannel chan common.Event
+	EventChannel chan cEvent.Event
 	Workqueue    workqueue.RateLimitingInterface
 	StopChan     <-chan struct{}
 
-	EventInformerCache        map[k8s.CacheKey]informerCoreV1.EventInformer
-	EventNamespaceListerCache map[k8s.CacheKey]listerCoreV1.EventNamespaceLister
-	EventInformerMuCache      map[k8s.CacheKey]*lock.CASMutex
 	EventInformerCacheRW      *lock.CASMutex
 }
 
-func NewEventController(stopChan <-chan struct{}) (controller common.Controller, err error) {
+func NewEventController(stopChan <-chan struct{}) (controller cEvent.Controller, err error) {
 	c := &eventController{
 		StopChan:                  stopChan,
 		Workqueue:                 workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "events"),
-		EventInformerCache:        map[k8s.CacheKey]informerCoreV1.EventInformer{},
-		EventNamespaceListerCache: map[k8s.CacheKey]listerCoreV1.EventNamespaceLister{},
-		EventInformerMuCache:      map[k8s.CacheKey]*lock.CASMutex{},
 		EventInformerCacheRW:      lock.NewCASMutex(),
 	}
 	kubeConfig := os.Getenv(consts.EnvDefaultKubeConfig)
@@ -81,7 +73,7 @@ func NewEventController(stopChan <-chan struct{}) (controller common.Controller,
 			}
 			zap.L().Info("new event", zap.String("name", event.Name), zap.String("type", event.Type),
 				zap.String("source", event.Source.String()))
-			ce := common.Event{
+			ce := cEvent.Event{
 				Namespace: event.Namespace,
 				Source:    event.Source.String(),
 				Type:      event.Type,
@@ -94,7 +86,7 @@ func NewEventController(stopChan <-chan struct{}) (controller common.Controller,
 	return c, nil
 }
 
-func (c *eventController) Run(ctx context.Context, eventChannel chan common.Event) error {
+func (c *eventController) Run(ctx context.Context, eventChannel chan cEvent.Event) error {
 	c.EventChannel = eventChannel
 	c.InformerFactory.Start(c.StopChan)
 	defer runtime.HandleCrash()

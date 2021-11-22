@@ -2,7 +2,7 @@ package k8sevent
 
 import (
 	"context"
-	"eventrigger.com/operator/pkg/controllers/events/common"
+	"eventrigger.com/operator/common/event"
 	"testing"
 )
 
@@ -14,7 +14,7 @@ func Test_NewEventController(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	eventChannel := make(chan common.Event)
+	eventChannel := make(chan event.Event)
 	err = controller.Run(ctx, eventChannel)
 	if err != nil {
 		t.Fatal(err)

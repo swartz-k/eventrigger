@@ -18,8 +18,8 @@ package sensor
 
 import (
 	"context"
+	"eventrigger.com/operator/common/event"
 	corev1 "eventrigger.com/operator/pkg/api/core/v1"
-	"eventrigger.com/operator/pkg/controllers/events/common"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -43,7 +43,7 @@ type SensorReconciler struct {
 	Client      client.Client
 	Scheme      *runtime.Scheme
 	logger      *zap.SugaredLogger
-	MonitorChan chan common.Monitor
+	MonitorChan chan event.Monitor
 }
 
 //+kubebuilder:rbac:groups=core.eventrigger.com,resources=sensors,verbs=get;list;watch;create;update;patch;delete

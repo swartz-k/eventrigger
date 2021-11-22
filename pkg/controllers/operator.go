@@ -18,11 +18,11 @@ package controllers
 
 import (
 	"context"
+	"eventrigger.com/operator/common/event"
 	"eventrigger.com/operator/common/sync/errsgroup"
 	eventriggerv1 "eventrigger.com/operator/pkg/api/core/v1"
 	"eventrigger.com/operator/pkg/controllers/actor"
 	"eventrigger.com/operator/pkg/controllers/events/cloudevents"
-	"eventrigger.com/operator/pkg/controllers/events/common"
 	"eventrigger.com/operator/pkg/controllers/events/k8sevent"
 	"fmt"
 	"github.com/pkg/errors"
@@ -77,15 +77,15 @@ type Operator struct {
 	Options OperatorOptions
 
 	// event monitor
-	CloudEventsController common.Controller
-	EventsController      common.Controller
+	CloudEventsController event.Controller
+	EventsController      event.Controller
 	// controller
 	Controller *manager.Manager
 	// actor
 	Actor          *actor.Runner
 	Cfg            *rest.Config
-	MonitorChannel chan common.Monitor
-	EventChannel   chan common.Event
+	MonitorChannel chan event.Monitor
+	EventChannel   chan event.Event
 	stopCh         <-chan struct{}
 }
 
@@ -114,8 +114,8 @@ func NewOperator(options *OperatorOptions) (op *Operator, err error) {
 	op = &Operator{
 		CTX:            context.Background(),
 		Options:        *options,
-		EventChannel:   make(chan common.Event, 100),
-		MonitorChannel: make(chan common.Monitor, 100),
+		EventChannel:   make(chan event.Event, 100),
+		MonitorChannel: make(chan event.Monitor, 100),
 	}
 	op.CloudEventsController, err = cloudevents.NewCloudEventController(
 		op.Options.CloudEventsPort)
