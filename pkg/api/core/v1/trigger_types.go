@@ -15,6 +15,8 @@ const (
 	Update KubernetesResourceOperation = "update" // updates the resource
 	Patch  KubernetesResourceOperation = "patch"  // patch resource
 	Delete KubernetesResourceOperation = "delete" // deletes the resource
+	ScaleToZero KubernetesResourceOperation = "scale-to-zero" // scale resource to zero
+	ScaleUp KubernetesResourceOperation = "scale-up" // scale resource up
 )
 
 // StandardK8STrigger is the standard Kubernetes resource trigger

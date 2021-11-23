@@ -9,7 +9,6 @@ import (
 	"go.uber.org/zap"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/dynamic"
 	"k8s.io/klog/v2"
 	"time"
 
@@ -260,17 +259,4 @@ func (r *Runner) DeployTrigger(id string, event event.Event) {
 		return
 	}
 	return
-}
-
-func (r *Runner) OperateK8sSource(trigger *v1.StandardK8STrigger, event event.Event) error {
-	if trigger == nil || trigger.Source == nil || trigger.Source.Resource == nil {
-		return errors.New("trigger source resource is nil")
-	}
-	dynamicClient, err := dynamic.NewForConfig(r.Cfg)
-	if err != nil {
-		return err
-	}
-
-	_, err = K8STriggerExecute(r.CTX, dynamicClient, trigger.Operation, event, trigger.Source.Resource)
-	return err
 }
