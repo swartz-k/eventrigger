@@ -24,7 +24,7 @@ import (
 	"eventrigger.com/operator/pkg/controllers/actor"
 	"eventrigger.com/operator/pkg/controllers/events/cloudevents"
 	"eventrigger.com/operator/pkg/controllers/events/k8sevent"
-	"eventrigger.com/operator/pkg/controllers/monitor"
+	"eventrigger.com/operator/pkg/controllers/events/monitor"
 	"fmt"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
