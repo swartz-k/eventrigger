@@ -1,21 +1,21 @@
 package main
 
 import (
-	"eventrigger.com/operator/pkg/controllers"
+	"eventrigger.com/operator/pkg/manager"
 	"fmt"
 	"github.com/spf13/cobra"
 	"os"
 )
 
 func main() {
-	opt := &controllers.OperatorOptions{}
+	opt := &manager.OperatorOptions{}
 
 	rootCmd := &cobra.Command{
 		Use:   "operator",
 		Short: "Event trigger operator",
 		RunE: func(cmd *cobra.Command, args []string) error {
 
-			operator, err := controllers.NewOperator(opt)
+			operator, err := manager.NewOperator(opt)
 			if err != nil {
 				return err
 			}

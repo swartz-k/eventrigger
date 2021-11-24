@@ -14,22 +14,27 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controllers
+package manager
 
 import (
 	"context"
+	"eventrigger.com/operator/common/consts"
 	"eventrigger.com/operator/common/event"
-	"eventrigger.com/operator/common/sync/errsgroup"
+	"eventrigger.com/operator/pkg/generated/clientset/versioned"
+	"eventrigger.com/operator/pkg/generated/informers/externalversions"
+	"k8s.io/client-go/tools/clientcmd"
+	"os"
+	"time"
+
 	eventriggerv1 "eventrigger.com/operator/pkg/api/core/v1"
-	"eventrigger.com/operator/pkg/controllers/actor"
-	"eventrigger.com/operator/pkg/controllers/events/cloudevents"
-	"eventrigger.com/operator/pkg/controllers/events/k8sevent"
-	"eventrigger.com/operator/pkg/controllers/events/monitor"
+	listerv1 "eventrigger.com/operator/pkg/generated/listers/core/v1"
 	"fmt"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -77,31 +82,26 @@ type Operator struct {
 	CTX     context.Context
 	Options OperatorOptions
 
-	// monitor
-	MonitorManager monitor.Manager
+	// map
+	RunnerChannelMap map[string]chan struct{}
 
-	// event monitor
-	CloudEventsController event.Controller
-	EventsController      event.Controller
 	// controller
 	Controller *manager.Manager
-	// actor
-	Actor          *actor.Runner
-	Cfg            *rest.Config
 	MonitorChannel chan eventriggerv1.Monitor
 	EventChannel   chan event.Event
+
+	InformerFactory externalversions.SharedInformerFactory
+	Workqueue    workqueue.RateLimitingInterface
+	DeWorkqueue  workqueue.RateLimitingInterface
+	Cfg          *rest.Config
+	ClientSet    *versioned.Clientset
+	SensorLister listerv1.SensorLister
+	SensorSynced cache.InformerSynced
+
 	stopCh         <-chan struct{}
 }
 
 func NewOperator(options *OperatorOptions) (op *Operator, err error) {
-	//var metricsAddr string
-	//var enableLeaderElection bool
-	//var probeAddr string
-	//flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
-	//flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
-	//flag.BoolVar(&enableLeaderElection, "leader-elect", false,
-	//	"Enable leader election for controller manager. "+
-	//		"Enabling this will ensure there is only one active controller manager.")
 	if options == nil {
 		options = &OperatorOptions{
 			Port:            7080,
@@ -118,28 +118,10 @@ func NewOperator(options *OperatorOptions) (op *Operator, err error) {
 	op = &Operator{
 		CTX:            context.Background(),
 		Options:        *options,
+		RunnerChannelMap: make(map[string]chan struct{}),
 		EventChannel:   make(chan event.Event, 100),
 		MonitorChannel: make(chan eventriggerv1.Monitor, 100),
-	}
-	op.CloudEventsController, err = cloudevents.NewCloudEventController(
-		op.Options.CloudEventsPort)
-	if err != nil {
-		return nil, errors.Wrap(err, "init cloud events controller")
-	}
-
-	op.EventsController, err = k8sevent.NewEventController(op.stopCh)
-	if err != nil {
-		return nil, errors.Wrap(err, "init kubernetes events controller")
-	}
-
-	op.Actor, err = actor.NewRunner(op.CTX, op.EventChannel, op.stopCh)
-	if err != nil {
-		return nil, errors.Wrap(err, "init kubernetes actor runner")
-	}
-
-	op.MonitorManager, err = monitor.NewManager(op.CTX, op.stopCh, op.MonitorChannel)
-	if err != nil {
-		return nil, errors.Wrap(err, "init monitor manager")
+		Workqueue:    workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), consts.SensorName),
 	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
@@ -170,7 +152,77 @@ func NewOperator(options *OperatorOptions) (op *Operator, err error) {
 	}
 
 	op.Controller = &mgr
+
+	kubeConfig := os.Getenv(consts.EnvDefaultKubeConfig)
+
+	if kubeConfig != "" {
+		op.Cfg, err = clientcmd.BuildConfigFromFlags("", kubeConfig)
+	} else {
+		op.Cfg, err = rest.InClusterConfig()
+	}
+	if err != nil {
+		return nil, errors.Wrap(err, "init from config")
+	}
+
+	op.ClientSet, err = versioned.NewForConfig(op.Cfg)
+	if err != nil {
+		return nil, errors.Wrap(err, "new for k8s config")
+	}
+
+	op.InformerFactory = externalversions.NewSharedInformerFactory(op.ClientSet, time.Second*30)
+	sensorInformer := op.InformerFactory.Core().V1().Sensors()
+	sensorInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: op.AddSensorHandler,
+		UpdateFunc: op.UpdateSensorHandler,
+		DeleteFunc: op.DeleteSensorHandler,
+	})
+	op.SensorLister = sensorInformer.Lister()
+	op.SensorSynced = sensorInformer.Informer().HasSynced
+
 	return op, nil
+}
+
+func (op *Operator) AddSensorHandler(obj interface{}) {
+	zap.L().Info("receive obj")
+	var object eventriggerv1.Sensor
+	var ok bool
+	if object, ok =obj.(eventriggerv1.Sensor); !ok {
+		zap.L().Error("decode k8s unstructured")
+		return
+	}
+	key, err := cache.MetaNamespaceKeyFunc(obj)
+	if err != nil {
+		utilruntime.HandleError(err)
+		return
+	}
+	ch := make(chan struct{})
+	runner, err := NewRunner(&object)
+	if err != nil {
+		zap.L().Error("init runner failed", zap.Error(err))
+	}
+	op.RunnerChannelMap[key] = ch
+	go runner.Run(ch)
+}
+
+func (op *Operator) UpdateSensorHandler(oldObj, newObj interface{}) {
+	zap.L().Info("update obj")
+}
+
+func (op *Operator) DeleteSensorHandler(obj interface{}) {
+	zap.L().Info("delete obj")
+	key, err := cache.MetaNamespaceKeyFunc(obj)
+	if err != nil {
+		utilruntime.HandleError(err)
+		return
+	}
+	var ch chan struct{}
+	var ok bool
+
+	if ch, ok = op.RunnerChannelMap[key]; !ok {
+		return
+	}
+	ch <- struct{}{}
+	delete(op.RunnerChannelMap, key)
 }
 
 func (op *Operator) Run() error {
@@ -188,31 +240,18 @@ func (op *Operator) Run() error {
 	undo := zap.ReplaceGlobals(logger)
 	defer undo()
 
-	var eg errsgroup.Group
-	eg.Go(func() error {
-		err := op.MonitorManager.Run()
-		zap.L().Info("monitor manager", zap.Error(err))
+	zap.L().Info("Starting workers")
+	op.InformerFactory.Start(op.stopCh)
+
+	defer utilruntime.HandleCrash()
+	defer op.Workqueue.ShutDown()
+
+	if ok := cache.WaitForCacheSync(op.stopCh, op.SensorSynced); !ok {
+		err := fmt.Errorf("failed to wait for caches to sync")
+		zap.L().Error("", zap.Error(err))
 		return err
-	})
+	}
 
-	eg.Go(func() error {
-		err := op.CloudEventsController.Run(op.CTX, op.EventChannel)
-		zap.L().Info("cloud events controller", zap.Error(err))
-		return err
-	})
-
-	eg.Go(func() error {
-		err := op.EventsController.Run(op.CTX, op.EventChannel)
-		zap.L().Info("k8s events controller", zap.Error(err))
-		return err
-	})
-
-	eg.Go(func() error {
-		err := op.Actor.Run(op.CTX)
-		zap.L().Info("actor run", zap.Error(err))
-		return err
-	})
-
-	return eg.WaitWithStopChannel(op.stopCh)
-
+	<- op.stopCh
+	return nil
 }
