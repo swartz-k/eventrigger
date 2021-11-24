@@ -26,7 +26,7 @@ func (g *Group) SetPoolSize(size int) {
 func (g *Group) Go(f func() error) {
 	g.wg.Add(1)
 	task := func() {
-		defer g.wg.Done()
+		defer g.wg.Add(-1)
 		err := f()
 		if err != nil {
 			g.locker.Lock()

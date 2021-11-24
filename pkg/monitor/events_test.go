@@ -1,4 +1,4 @@
-package k8sevent
+package monitor
 
 import (
 	"context"

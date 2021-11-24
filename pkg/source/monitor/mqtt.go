@@ -21,7 +21,7 @@ type MQTTOptions struct {
 }
 
 type MQTTRunner struct {
-	Opts MQTTOptions
+	Opts         MQTTOptions
 	EventChannel chan event.Event
 	StopCh <- chan struct{}
 }

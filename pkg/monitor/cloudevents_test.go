@@ -1,4 +1,4 @@
-package cloudevents
+package monitor
 
 import (
 	"context"

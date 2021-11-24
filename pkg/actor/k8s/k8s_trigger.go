@@ -1,4 +1,4 @@
-package actor
+package k8s
 
 import (
 	"context"
@@ -55,16 +55,8 @@ func ScaleObjTo(ctx context.Context, cli *kubernetes.Clientset, obj *unstructure
 	}
 }
 
-func (r *Runner) OperateK8sSource(trigger *v1.StandardK8STrigger, event commonEvent.Event) error {
-	if trigger == nil || trigger.Source == nil || trigger.Source.Resource == nil {
-		return errors.New("trigger source resource is nil")
-	}
-
-	resource := trigger.Source.Resource
-	if resource == nil {
-		return errors.New(fmt.Sprintf("failed to interpret the trigger resource, obj %+v", string(resource.Value)))
-	}
-	obj, err := k8s.DecodeAndUnstructure(resource.Value)
+func (r *k8sActor) Exec(ctx context.Context, event commonEvent.Event) error {
+	obj, err := k8s.DecodeAndUnstructure(r.Source.Value)
 	if err != nil {
 		return err
 	}
@@ -83,28 +75,31 @@ func (r *Runner) OperateK8sSource(trigger *v1.StandardK8STrigger, event commonEv
 	}
 	obj.SetNamespace(namespace)
 	zap.L().Info("starting operate trigger resource", zap.String("gvr", gvr.String()),
-		zap.String("op", string(trigger.Operation)), zap.String("namespace", namespace))
+		zap.String("op", string(r.OP)), zap.String("namespace", namespace))
 
 	dynamicClient, err := dynamic.NewForConfig(r.Cfg)
 	if err != nil {
 		return err
 	}
+	if dynamicClient == nil {
+		return errors.New("dynamic client is nil")
+	}
 
-	switch trigger.Operation {
-	case v1.Create:
+	switch r.OP {
+	case string(v1.Create):
 		labels := obj.GetLabels()
 		if labels == nil {
 			labels = make(map[string]string)
 		}
 		labels["event.eventrigger.com/action-timestamp"] = strconv.Itoa(int(time.Now().UnixNano() / int64(time.Millisecond)))
 		obj.SetLabels(labels)
-		_, err = dynamicClient.Resource(gvr).Namespace(namespace).Create(r.CTX, obj, metav1.CreateOptions{})
+		_, err = dynamicClient.Resource(gvr).Namespace(namespace).Create(ctx, obj, metav1.CreateOptions{})
 		if err != nil {
 			return errors.Errorf("failed to create object. err: %+v\n", err)
 		}
 		return nil
-	case v1.Delete:
-		_, err = dynamicClient.Resource(gvr).Namespace(namespace).Get(r.CTX, obj.GetName(), metav1.GetOptions{})
+	case string(v1.Delete):
+		_, err = dynamicClient.Resource(gvr).Namespace(namespace).Get(ctx, obj.GetName(), metav1.GetOptions{})
 
 		if err != nil && apierrors.IsNotFound(err) {
 			zap.L().Info("object not found, nothing to delete...")
@@ -113,33 +108,33 @@ func (r *Runner) OperateK8sSource(trigger *v1.StandardK8STrigger, event commonEv
 			return errors.Errorf("failed to retrieve existing object. err: %+v\n", err)
 		}
 
-		err = dynamicClient.Resource(gvr).Delete(r.CTX, obj.GetName(), metav1.DeleteOptions{})
+		err = dynamicClient.Resource(gvr).Delete(ctx, obj.GetName(), metav1.DeleteOptions{})
 		if err != nil {
 			return errors.Errorf("failed to delete object. err: %+v\n", err)
 		}
 		return nil
-	case v1.ScaleToZero:
+	case string(v1.ScaleToZero):
 		k8sCli, err := kubernetes.NewForConfig(r.Cfg)
 		if err != nil {
 			return err
 		}
-		err = ScaleObjTo(r.CTX, k8sCli, obj, 0)
+		err = ScaleObjTo(ctx, k8sCli, obj, 0)
 		if err != nil {
 			return errors.Errorf("failed to scaleToZero. err: %+v\n", err)
 		}
 		return nil
-	case v1.ScaleUp:
+	case string(v1.ScaleUp):
 		k8sCli, err := kubernetes.NewForConfig(r.Cfg)
 		if err != nil {
 			return err
 		}
-		err = ScaleObjTo(r.CTX, k8sCli, obj, 1)
+		err = ScaleObjTo(ctx, k8sCli, obj, 1)
 		if err != nil {
 			return errors.Errorf("failed to scaleUp. err: %+v\n", err)
 		}
 		return nil
 	default:
-		return errors.Errorf("unknown operation type %s", string(trigger.Operation))
+		return errors.Errorf("unknown operation type %s", r.OP)
 	}
 	return err
 }
