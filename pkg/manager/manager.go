@@ -20,10 +20,13 @@ import (
 	"context"
 	"eventrigger.com/operator/common/consts"
 	"eventrigger.com/operator/common/event"
+	"eventrigger.com/operator/common/sync/errsgroup"
 	"eventrigger.com/operator/pkg/generated/clientset/versioned"
 	"eventrigger.com/operator/pkg/generated/informers/externalversions"
 	"k8s.io/client-go/tools/clientcmd"
 	"os"
+	"sync"
+
 	"time"
 
 	eventriggerv1 "eventrigger.com/operator/pkg/api/core/v1"
@@ -86,6 +89,8 @@ type Operator struct {
 	RunnerChannelMap map[string]chan struct{}
 
 	// controller
+	ErrorGroup  errsgroup.Group
+	WaitGroup sync.WaitGroup
 	Controller *manager.Manager
 	MonitorChannel chan eventriggerv1.Monitor
 	EventChannel   chan event.Event
@@ -184,24 +189,38 @@ func NewOperator(options *OperatorOptions) (op *Operator, err error) {
 
 func (op *Operator) AddSensorHandler(obj interface{}) {
 	zap.L().Info("receive obj")
-	var object eventriggerv1.Sensor
-	var ok bool
-	if object, ok =obj.(eventriggerv1.Sensor); !ok {
-		zap.L().Error("decode k8s unstructured")
-		return
-	}
 	key, err := cache.MetaNamespaceKeyFunc(obj)
 	if err != nil {
 		utilruntime.HandleError(err)
 		return
 	}
-	ch := make(chan struct{})
-	runner, err := NewRunner(&object)
-	if err != nil {
-		zap.L().Error("init runner failed", zap.Error(err))
+
+	zap.L().Info(fmt.Sprintf("start runner with key %s", key))
+	var object *eventriggerv1.Sensor
+	var ok bool
+	if object, ok = obj.(*eventriggerv1.Sensor); !ok {
+		zap.L().Error("decode k8s unstructured")
+		return
 	}
+	ch := make(chan struct{})
 	op.RunnerChannelMap[key] = ch
-	go runner.Run(ch)
+	op.ErrorGroup.Go(func() error {
+		defer delete(op.RunnerChannelMap, key)
+		runner, err := NewRunner(object)
+		if err != nil {
+			err = errors.Wrap(err, "init runner")
+			zap.L().Error(err.Error())
+			return err
+		}
+		err = runner.Run(ch)
+		if err != nil {
+			err = errors.Wrap(err, "run runner")
+			zap.L().Error(err.Error())
+			return err
+		}
+		zap.L().Info(fmt.Sprintf("runner with key %s done", key))
+		return nil
+	})
 }
 
 func (op *Operator) UpdateSensorHandler(oldObj, newObj interface{}) {
@@ -252,6 +271,23 @@ func (op *Operator) Run() error {
 		return err
 	}
 
-	<- op.stopCh
+	err = op.ErrorGroup.WaitWithStopChannel(op.stopCh)
+	if err != nil {
+		zap.L().Error("wait with stop channel", zap.Error(err))
+	}
+	t := time.NewTicker(10 * time.Second)
+	for {
+		select {
+		case <-t.C:
+			msg := ""
+			for key, _ := range op.RunnerChannelMap {
+				msg += fmt.Sprintf("%s,", key)
+			}
+			zap.L().Debug("runnerMap with listening %s", zap.String("msg", msg))
+		case <-op.stopCh:
+			zap.L().Info("done")
+			return nil
+		}
+	}
 	return nil
 }

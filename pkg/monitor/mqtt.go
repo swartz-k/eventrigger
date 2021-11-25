@@ -1,8 +1,8 @@
 package monitor
 
 import (
+	"context"
 	"eventrigger.com/operator/common/event"
-	"eventrigger.com/operator/common/sync/errsgroup"
 	"fmt"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/pkg/errors"
@@ -26,14 +26,14 @@ type MQTTRunner struct {
 	StopCh <- chan struct{}
 }
 
-func NewMQTTRunner(opts *MQTTOptions) (Runner, error) {
+func NewMQTTMonitor(opts *MQTTOptions) (*MQTTRunner, error) {
 	if opts == nil || opts.URI == "" || opts.Username == "" || opts.Password == "" {
 		return nil, errors.New("NewMQTTRunner failed uri username or password is empty")
 	}
 	if opts.PingTimeoutSecond == 0 {
 		opts.PingTimeoutSecond = 1
 	}
-	m := &MQTTRunner{Opts: *opts}
+	m := &MQTTRunner{Opts: *opts, EventChannel: make(chan event.Event)}
 
 	return m, nil
 }
@@ -42,10 +42,8 @@ func MQTTEventHandler(cli mqtt.Client, msg mqtt.Message) {
 	fmt.Printf("Received message: %s from topic: %s\n", msg.Payload(), msg.Topic())
 }
 
-func (m *MQTTRunner) Run(eventChannel chan event.Event, stopCh <- chan struct{}) error {
+func (m *MQTTRunner) Run(ctx context.Context, eventChannel chan event.Event, stopCh <- chan struct{}) error {
 	// Subscribe to a topic
-	fmt.Printf("mqtt runner subscribe topic %s \n", m.Opts.Topic)
-	m.EventChannel = eventChannel
 	m.StopCh = stopCh
 
 	clientOpts := mqtt.NewClientOptions().AddBroker(m.Opts.URI).
@@ -54,30 +52,27 @@ func (m *MQTTRunner) Run(eventChannel chan event.Event, stopCh <- chan struct{})
 	clientOpts.SetPingTimeout(time.Duration(m.Opts.PingTimeoutSecond) * time.Second)
 	clientOpts.SetDefaultPublishHandler(MQTTEventHandler)
 	clientOpts.SetOrderMatters(false)
-	fmt.Printf("new client topic %s\n", m.Opts.Topic)
+
+	// todo: retry
 	cli := mqtt.NewClient(clientOpts)
 	if token := cli.Connect(); token.Wait() && token.Error() != nil {
-		zap.L().Fatal("connect", zap.Error(token.Error()))
+		err := errors.Wrapf(token.Error(), "connect to mqtt://%s:%s@%s/%s",
+			m.Opts.Username, m.Opts.Password, m.Opts.URI, m.Opts.Topic)
+		zap.L().Error("connect", zap.Error(err))
+		return err
 	}
 
-	var eg errsgroup.Group
-	eg.Go(func() error {
-		cli := cli
-		token := cli.Subscribe(m.Opts.Topic, 0, func(client mqtt.Client, msg mqtt.Message) {
-			fmt.Printf("* [%s] %s\n", msg.Topic(), string(msg.Payload()))
-		})
-		if token.Wait() && token.Error() != nil {
-			return errors.Wrapf(token.Error(), "failed to subscribe to the topic %s", m.Opts.Topic)
+	token := cli.Subscribe(m.Opts.Topic, 0, func(client mqtt.Client, msg mqtt.Message) {
+		ev := event.Event{
+			Source:  msg.Topic(),
+			Type: "mqtt",
+			Data: string(msg.Payload()),
 		}
-		return nil
+		eventChannel <- ev
 	})
-	eg.Go(func() error {
-		topic := m.Opts.Topic
-		timer := time.NewTicker(1 * time.Second)
-		for range timer.C {
-			zap.L().Info(fmt.Sprintf("mqtt listening on topic %s", topic))
-		}
-		return nil
-	})
-	return eg.WaitWithStopChannel(stopCh)
+	if token.Wait() && token.Error() != nil {
+		return errors.Wrapf(token.Error(), "failed to subscribe to the topic %s", m.Opts.Topic)
+	}
+	return nil
+
 }
