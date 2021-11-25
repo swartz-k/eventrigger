@@ -56,7 +56,6 @@ func ScaleObjTo(ctx context.Context, cli *kubernetes.Clientset, obj *unstructure
 }
 
 func (r *k8sActor) Exec(ctx context.Context, event commonEvent.Event) error {
-
 	obj, err := k8s.DecodeAndUnstructure(r.Source.Value)
 	if err != nil {
 		return err
@@ -81,6 +80,9 @@ func (r *k8sActor) Exec(ctx context.Context, event commonEvent.Event) error {
 	dynamicClient, err := dynamic.NewForConfig(r.Cfg)
 	if err != nil {
 		return err
+	}
+	if dynamicClient == nil {
+		return errors.New("dynamic client is nil")
 	}
 
 	switch r.OP {

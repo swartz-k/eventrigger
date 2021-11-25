@@ -2,32 +2,47 @@ package manager
 
 import (
 	"context"
+	"eventrigger.com/operator/common/event"
 	"eventrigger.com/operator/pkg/actor"
 	"eventrigger.com/operator/pkg/actor/k8s"
 	v1 "eventrigger.com/operator/pkg/api/core/v1"
-	"eventrigger.com/operator/pkg/source"
+	"eventrigger.com/operator/pkg/monitor"
 	"fmt"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 )
 
 type RunnerInterface interface {
-	Run(stopCh chan struct{})
+
+	Run(stopCh chan struct{}) error
 }
 
 type runner struct {
 	CTX context.Context
+	eventCh chan event.Event
 	stopCh chan struct{}
-	Source source.Interface
-	Actor actor.Interface
+	Monitor monitor.Interface
+	Actor  actor.Interface
 }
 
-func ParseSensorSource(monitor v1.Monitor) (source source.Interface, err error) {
-
+func ParseSensorMonitor(m *v1.Monitor) (source monitor.Interface, err error) {
+	if m == nil || m.Template == nil {
+		return nil, errors.New(fmt.Sprintf("%+v monitor or template is nil parse failed", m))
+	}
+	if m.Template.MQTT != nil {
+		source := m.Template.MQTT
+		opts := &monitor.MQTTOptions{
+			URI: source.URL,
+			Topic: source.Topic,
+			Username: source.Username,
+			Password: source.Password,
+		}
+		return monitor.NewMQTTMonitor(opts)
+	}
 	return nil, nil
 }
 
-func ParseSensorTrigger(trigger v1.Trigger) (actor actor.Interface, err error) {
+func ParseSensorTrigger(trigger *v1.Trigger) (actor actor.Interface, err error) {
 	if trigger.Template == nil {
 		return nil, errors.New("trigger template is nil")
 	}
@@ -45,28 +60,47 @@ func ParseSensorTrigger(trigger v1.Trigger) (actor actor.Interface, err error) {
 }
 
 func NewRunner(sensor *v1.Sensor) (r RunnerInterface, err error){
+	ctx := context.Background()
 	if sensor == nil {
 		return nil, errors.New("sensor is nil, runner failed")
 	}
-	source, err := ParseSensorSource(sensor.Spec.Monitor)
-	actor, err := ParseSensorTrigger(sensor.Spec.Trigger)
+	monitor, err := ParseSensorMonitor(&sensor.Spec.Monitor)
+	if err != nil {
+		return nil, err
+	}
+	actor, err := ParseSensorTrigger(&sensor.Spec.Trigger)
+	if err != nil {
+		return nil, err
+	}
 	r = &runner{
-		Source: source,
+		CTX: ctx,
+		Monitor: monitor,
 		Actor: actor,
+		eventCh: make(chan event.Event),
 	}
 	return r, nil
 }
 
-func (r *runner) Run(stopCh chan struct{}) {
-	select {
-	case event := <- r.Source.Run(r.CTX, stopCh):
-		err := r.Actor.Exec(r.CTX, event)
-		if err != nil {
-			zap.L().Warn("receive stop channel, stop!!!")
-			break
-		}
-		zap.L().Info(fmt.Sprintf("successfully exec event %s-%s with actor", event.Type, event.Source ))
-	case <- stopCh:
-		zap.L().Warn("receive stop channel, stop!!!")
+func (r *runner) Run(stopCh chan struct{}) error {
+	err := r.Monitor.Run(r.CTX, r.eventCh, stopCh)
+	if err != nil {
+		return err
 	}
+	for {
+		select {
+		case event := <-r.eventCh:
+			zap.L().Info(fmt.Sprintf("receive event %s-%s, exec actor", event.Type, event.Source))
+			err := r.Actor.Exec(r.CTX, event)
+			if err != nil {
+				err = errors.Wrapf(err, "actor exec with event %s-%s", event.Type, event.Source)
+				zap.L().Error("", zap.Error(err))
+			} else {
+				zap.L().Info(fmt.Sprintf("successfully exec event %s-%s with actor", event.Type, event.Source))
+			}
+		case <-stopCh:
+			zap.L().Warn("receive stop channel, stop!!!")
+			return nil
+		}
+	}
+	return nil
 }

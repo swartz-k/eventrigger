@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"context"
 	"eventrigger.com/operator/common/event"
 	"fmt"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -138,7 +139,8 @@ func TestMQTTRunner(t *testing.T) {
 		Username: "user",
 		Password: "hYiLCwOnNg",
 	}
-	m, err := NewMQTTRunner(opt)
+	ctx := context.Background()
+	m, err := NewMQTTMonitor(opt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +150,21 @@ func TestMQTTRunner(t *testing.T) {
 	clientOpts.OnConnectionLost = connectLostHandler
 	clientOpts.SetPingTimeout(time.Duration(1) * time.Second)
 
-	stopCh := make(<- chan struct{})
 	eventChannel := make(chan event.Event)
-	m.Run(eventChannel, stopCh)
+	stopCh := make(<- chan struct{})
+	go m.Run(ctx, eventChannel, stopCh)
+
+	t.Log("mqtt running")
+	for {
+		select {
+		case event, ok := <-eventChannel:
+			if ok {
+				t.Logf("receive event %v, event %s \n", ok, event.Data)
+			} else {
+				t.Logf("receive event %v \n", ok)
+			}
+		case <-stopCh:
+			return
+		}
+	}
 }
