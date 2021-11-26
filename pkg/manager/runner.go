@@ -39,6 +39,12 @@ func ParseSensorMonitor(m *v1.Monitor) (source monitor.Interface, err error) {
 		}
 		return monitor.NewMQTTMonitor(opts)
 	}
+	if m.Template.Cron != nil {
+		opts := &monitor.CronOptions{
+			Cron: m.Template.Cron.Cron,
+		}
+		return monitor.NewCronMonitor(opts)
+	}
 	return nil, nil
 }
 

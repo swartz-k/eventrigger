@@ -3,7 +3,6 @@ package monitor
 import (
 	"context"
 	"eventrigger.com/operator/common/event"
-	"fmt"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
@@ -22,7 +21,6 @@ type MQTTOptions struct {
 
 type MQTTRunner struct {
 	Opts         MQTTOptions
-	EventChannel chan event.Event
 	StopCh <- chan struct{}
 }
 
@@ -33,13 +31,9 @@ func NewMQTTMonitor(opts *MQTTOptions) (*MQTTRunner, error) {
 	if opts.PingTimeoutSecond == 0 {
 		opts.PingTimeoutSecond = 1
 	}
-	m := &MQTTRunner{Opts: *opts, EventChannel: make(chan event.Event)}
+	m := &MQTTRunner{Opts: *opts}
 
 	return m, nil
-}
-
-func MQTTEventHandler(cli mqtt.Client, msg mqtt.Message) {
-	fmt.Printf("Received message: %s from topic: %s\n", msg.Payload(), msg.Topic())
 }
 
 func (m *MQTTRunner) Run(ctx context.Context, eventChannel chan event.Event, stopCh <- chan struct{}) error {
@@ -50,7 +44,6 @@ func (m *MQTTRunner) Run(ctx context.Context, eventChannel chan event.Event, sto
 		SetUsername(m.Opts.Username).SetPassword(m.Opts.Password)
 
 	clientOpts.SetPingTimeout(time.Duration(m.Opts.PingTimeoutSecond) * time.Second)
-	clientOpts.SetDefaultPublishHandler(MQTTEventHandler)
 	clientOpts.SetOrderMatters(false)
 
 	// todo: retry
@@ -74,5 +67,4 @@ func (m *MQTTRunner) Run(ctx context.Context, eventChannel chan event.Event, sto
 		return errors.Wrapf(token.Error(), "failed to subscribe to the topic %s", m.Opts.Topic)
 	}
 	return nil
-
 }
