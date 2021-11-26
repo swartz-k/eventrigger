@@ -21,21 +21,28 @@ type MonitorTemplate struct {
 	// +optional
 	MQTT *MQTTMonitor `json:"mqtt,omitempty" protobuf:"bytes,1,opt,name=mqtt"`
 
-	Redis *RedisMonitor `json:"redis,omitempty" protobuf:"bytes,2,opt,name=redis"`
-	// AWSLambda refers to the trigger designed to invoke AWS Lambda function with with on-the-fly constructable payload.
 	// +optional
+	Redis *RedisMonitor `json:"redis,omitempty" protobuf:"bytes,2,opt,name=redis"`
+
+	// +optional
+	Cron *CronMonitor `json:"cron,omitempty" protobuf:"bytes,3,opt,name=cron"`
+}
+
+
+type CronMonitor struct {
+	Cron      string `json:"cron" yaml:"cron" protobuf:"bytes,1,opt,name=cron"`
 }
 
 type MQTTMonitor struct {
-	URL      string `json:"url" protobuf:"bytes,1,opt,name=url"`
-	Topic    string `json:"topic" protobuf:"bytes,2,opt,name=topic"`
-	Username string `json:"username" protobuf:"bytes,3,opt,name=username"`
-	Password string `json:"password" protobuf:"bytes,4,opt,name=password"`
+	URL      string `json:"url" yaml:"url" protobuf:"bytes,1,opt,name=url"`
+	Topic    string `json:"topic" yaml:"topic" protobuf:"bytes,2,opt,name=topic"`
+	Username string `json:"username" yaml:"username" protobuf:"bytes,3,opt,name=username"`
+	Password string `json:"password" yaml:"password" protobuf:"bytes,4,opt,name=password"`
 }
 
 type RedisMonitor struct {
-	Host     string `json:"host" protobuf:"bytes,1,opt,name=host"`
-	Database string `json:"database" protobuf:"bytes,2,opt,name=database"`
-	Username string `json:"username" protobuf:"bytes,3,opt,name=username"`
-	Password string `json:"password" protobuf:"bytes,4,opt,name=password"`
+	Host     string `json:"host" yaml:"host" protobuf:"bytes,1,opt,name=host"`
+	Database string `json:"database" yaml:"database" protobuf:"bytes,2,opt,name=database"`
+	Username string `json:"username" yaml:"username" protobuf:"bytes,3,opt,name=username"`
+	Password string `json:"password" yaml:"password" protobuf:"bytes,4,opt,name=password"`
 }
