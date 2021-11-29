@@ -136,5 +136,4 @@ func (r *k8sActor) Exec(ctx context.Context, event commonEvent.Event) error {
 	default:
 		return errors.Errorf("unknown operation type %s", r.OP)
 	}
-	return err
 }

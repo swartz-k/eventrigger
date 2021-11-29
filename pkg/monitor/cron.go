@@ -4,6 +4,7 @@ import (
 	"context"
 	"eventrigger.com/operator/common/event"
 	"fmt"
+	"github.com/mitchellh/mapstructure"
 	"github.com/pkg/errors"
 	"github.com/robfig/cron/v3"
 	"strconv"
@@ -15,46 +16,59 @@ type CronOptions struct {
 }
 
 type CronRunner struct {
-	Opts         CronOptions
-	Cron 		*cron.Cron
+	Opts       CronOptions
+	Cron       *cron.Cron
 	Scheduler  cron.Schedule
 	CronMapper map[cron.EntryID]chan struct{}
-	StopCh <- chan struct{}
+	StopCh     <-chan struct{}
 }
 
-func NewCronMonitor(opts *CronOptions) (*CronRunner, error) {
+func parseCronMeta(meta map[string]string) (*CronOptions, error) {
+	opts := &CronOptions{}
+	err := mapstructure.Decode(meta, opts)
+	if err != nil {
+		return nil, errors.Wrapf(err, "fail parse cron meta %s", meta)
+	}
+
 	if opts == nil || opts.Cron == "" {
-		return nil, errors.New("NewMQTTRunner failed uri username or password is empty")
+		return nil, errors.New("cron opts cron is empty")
+	}
+	return opts, nil
+}
+
+func NewCronMonitor(meta map[string]string) (*CronRunner, error) {
+	opts, err := parseCronMeta(meta)
+	if err != nil {
+		return nil, errors.Wrap(err, "parse cron meta")
 	}
 
 	parser := cron.NewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-	//parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-	sche, err := parser.Parse(opts.Cron)
+	scheduler, err := parser.Parse(opts.Cron)
 	if err != nil {
 		return nil, err
 	}
 	c := cron.New(cron.WithSeconds())
 	m := &CronRunner{
-		Opts: *opts,
-		Scheduler: sche,
-		Cron: c,
+		Opts:       *opts,
+		Scheduler:  scheduler,
+		Cron:       c,
 		CronMapper: map[cron.EntryID]chan struct{}{},
 	}
 
 	return m, nil
 }
 
-func (m *CronRunner) Run(ctx context.Context, eventChannel chan event.Event, stopCh <- chan struct{}) error {
+func (m *CronRunner) Run(ctx context.Context, eventChannel chan event.Event, stopCh <-chan struct{}) error {
 	fStopCh := make(chan struct{})
 	entryId, err := m.Cron.AddFunc(m.Opts.Cron, func() {
 		ev := event.Event{
 			Source: "",
-			Type: "cron",
-			Data: strconv.Itoa(int(time.Now().UnixNano())),
+			Type:   "cron",
+			Data:   strconv.Itoa(int(time.Now().UnixNano())),
 		}
 		eventChannel <- ev
 		select {
-		case <- fStopCh:
+		case <-fStopCh:
 			return
 		default:
 			break
@@ -67,12 +81,12 @@ func (m *CronRunner) Run(ctx context.Context, eventChannel chan event.Event, sto
 
 	go m.Cron.Run()
 	select {
-		case <- stopCh:
-			for _, ch := range m.CronMapper {
-				ch <- struct{}{}
-			}
-			m.Cron.Stop()
-			fmt.Println("stop cron")
+	case <-stopCh:
+		for _, ch := range m.CronMapper {
+			ch <- struct{}{}
+		}
+		m.Cron.Stop()
+		fmt.Println("stop cron")
 	}
 	return nil
 }

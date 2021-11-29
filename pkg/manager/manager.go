@@ -89,21 +89,21 @@ type Operator struct {
 	RunnerChannelMap map[string]chan struct{}
 
 	// controller
-	ErrorGroup  errsgroup.Group
-	WaitGroup sync.WaitGroup
-	Controller *manager.Manager
+	ErrorGroup     errsgroup.Group
+	WaitGroup      sync.WaitGroup
+	Controller     *manager.Manager
 	MonitorChannel chan eventriggerv1.Monitor
 	EventChannel   chan event.Event
 
 	InformerFactory externalversions.SharedInformerFactory
-	Workqueue    workqueue.RateLimitingInterface
-	DeWorkqueue  workqueue.RateLimitingInterface
-	Cfg          *rest.Config
-	ClientSet    *versioned.Clientset
-	SensorLister listerv1.SensorLister
-	SensorSynced cache.InformerSynced
+	Workqueue       workqueue.RateLimitingInterface
+	DeWorkqueue     workqueue.RateLimitingInterface
+	Cfg             *rest.Config
+	ClientSet       *versioned.Clientset
+	SensorLister    listerv1.SensorLister
+	SensorSynced    cache.InformerSynced
 
-	stopCh         <-chan struct{}
+	stopCh <-chan struct{}
 }
 
 func NewOperator(options *OperatorOptions) (op *Operator, err error) {
@@ -121,12 +121,12 @@ func NewOperator(options *OperatorOptions) (op *Operator, err error) {
 		}
 	}
 	op = &Operator{
-		CTX:            context.Background(),
-		Options:        *options,
+		CTX:              context.Background(),
+		Options:          *options,
 		RunnerChannelMap: make(map[string]chan struct{}),
-		EventChannel:   make(chan event.Event, 100),
-		MonitorChannel: make(chan eventriggerv1.Monitor, 100),
-		Workqueue:    workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), consts.SensorName),
+		EventChannel:     make(chan event.Event, 100),
+		MonitorChannel:   make(chan eventriggerv1.Monitor, 100),
+		Workqueue:        workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), consts.SensorName),
 	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
@@ -177,7 +177,7 @@ func NewOperator(options *OperatorOptions) (op *Operator, err error) {
 	op.InformerFactory = externalversions.NewSharedInformerFactory(op.ClientSet, time.Second*30)
 	sensorInformer := op.InformerFactory.Core().V1().Sensors()
 	sensorInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: op.AddSensorHandler,
+		AddFunc:    op.AddSensorHandler,
 		UpdateFunc: op.UpdateSensorHandler,
 		DeleteFunc: op.DeleteSensorHandler,
 	})
@@ -289,5 +289,4 @@ func (op *Operator) Run() error {
 			return nil
 		}
 	}
-	return nil
 }

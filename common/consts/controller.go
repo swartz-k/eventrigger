@@ -1,7 +1,7 @@
 package consts
 
 const (
-	SensorName = "Sensor"
+	SensorName                       = "Sensor"
 	EnvDefaultKubeConfig             = "KUBECONFIG"
 	DefaultCloudEventsControllerPort = 8190
 )

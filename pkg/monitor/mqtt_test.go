@@ -5,11 +5,11 @@ import (
 	"eventrigger.com/operator/common/event"
 	"fmt"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
+	"github.com/stretchr/testify/assert"
 	"net/url"
 	"testing"
 	"time"
 )
-
 
 func EventHandler(client mqtt.Client, msg mqtt.Message) {
 	fmt.Printf("TOPIC: %s\n", msg.Topic())
@@ -18,6 +18,23 @@ func EventHandler(client mqtt.Client, msg mqtt.Message) {
 
 var connectLostHandler mqtt.ConnectionLostHandler = func(client mqtt.Client, err error) {
 	fmt.Printf("Connect lost: %v", err)
+}
+
+func TestParseMQTTMeta(t *testing.T) {
+	meta := map[string]string{
+		"uri":      "uri",
+		"topic":    "topic",
+		"username": "username",
+		"password": "password",
+	}
+	opts, err := parseMQTTMeta(meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, "uri", opts.URI)
+	assert.Equal(t, "topic", opts.Topic)
+	assert.Equal(t, "username", opts.Username)
+	assert.Equal(t, "password", opts.Password)
 }
 
 func TestMQTTProducer(t *testing.T) {
@@ -54,7 +71,6 @@ func TestMQTTProducer(t *testing.T) {
 
 	cli.Disconnect(250)
 }
-
 
 func TestMQTTSubscribe(t *testing.T) {
 	ura := "mqtt://user:hYiLCwOnNg@127.0.0.1:1883/test"
@@ -97,8 +113,8 @@ func TestMQTTSubscribe(t *testing.T) {
 
 func TestMQTTPublish(t *testing.T) {
 	opt := &MQTTOptions{
-		Topic: "test/1",
-		URI: "127.0.0.1:1883",
+		Topic:    "test/1",
+		URI:      "127.0.0.1:1883",
 		Username: "user",
 		Password: "hYiLCwOnNg",
 	}
@@ -133,25 +149,29 @@ func TestMQTTPublish(t *testing.T) {
 }
 
 func TestMQTTRunner(t *testing.T) {
-	opt := &MQTTOptions{
-		Topic: "#",
-		URI: "127.0.0.1:1883",
-		Username: "user",
-		Password: "hYiLCwOnNg",
+	uri := "127.0.0.1:1883"
+	topic := "#"
+	username := "user"
+	password := "hYiLCwOnNg"
+	meta := map[string]string{
+		"topic":    topic,
+		"uri":      uri,
+		"username": username,
+		"password": password,
 	}
 	ctx := context.Background()
-	m, err := NewMQTTMonitor(opt)
+	m, err := NewMQTTMonitor(meta)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	clientOpts := mqtt.NewClientOptions().AddBroker(opt.URI).
-		SetUsername(opt.Username).SetPassword(opt.Password)
+	clientOpts := mqtt.NewClientOptions().AddBroker(uri).
+		SetUsername(username).SetPassword(password)
 	clientOpts.OnConnectionLost = connectLostHandler
 	clientOpts.SetPingTimeout(time.Duration(1) * time.Second)
 
 	eventChannel := make(chan event.Event)
-	stopCh := make(<- chan struct{})
+	stopCh := make(<-chan struct{})
 	go m.Run(ctx, eventChannel, stopCh)
 
 	t.Log("mqtt running")
