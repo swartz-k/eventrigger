@@ -13,39 +13,31 @@ import (
 )
 
 type RunnerInterface interface {
-
 	Run(stopCh chan struct{}) error
 }
 
 type runner struct {
-	CTX context.Context
+	CTX     context.Context
 	eventCh chan event.Event
-	stopCh chan struct{}
+	stopCh  chan struct{}
 	Monitor monitor.Interface
-	Actor  actor.Interface
+	Actor   actor.Interface
 }
 
 func ParseSensorMonitor(m *v1.Monitor) (source monitor.Interface, err error) {
-	if m == nil || m.Template == nil {
-		return nil, errors.New(fmt.Sprintf("%+v monitor or template is nil parse failed", m))
+	if m == nil || len(m.Meta) == 0 {
+		return nil, errors.New(fmt.Sprintf("%+v monitor or meta is nil", m))
 	}
-	if m.Template.MQTT != nil {
-		source := m.Template.MQTT
-		opts := &monitor.MQTTOptions{
-			URI: source.URL,
-			Topic: source.Topic,
-			Username: source.Username,
-			Password: source.Password,
-		}
-		return monitor.NewMQTTMonitor(opts)
+	switch m.Type {
+	case string(v1.MQTTMonitorType):
+		return monitor.NewMQTTMonitor(m.Meta)
+	case string(v1.CronMonitorType):
+		return monitor.NewCronMonitor(m.Meta)
+	case string(v1.KafkaMonitorType):
+		return monitor.NewKafkaMonitor(m.Meta)
+	default:
+		return nil, errors.New(fmt.Sprintf("not support monitor of %s", m.Type))
 	}
-	if m.Template.Cron != nil {
-		opts := &monitor.CronOptions{
-			Cron: m.Template.Cron.Cron,
-		}
-		return monitor.NewCronMonitor(opts)
-	}
-	return nil, nil
 }
 
 func ParseSensorTrigger(trigger *v1.Trigger) (actor actor.Interface, err error) {
@@ -65,7 +57,7 @@ func ParseSensorTrigger(trigger *v1.Trigger) (actor actor.Interface, err error) 
 	return nil, errors.New("no valid template")
 }
 
-func NewRunner(sensor *v1.Sensor) (r RunnerInterface, err error){
+func NewRunner(sensor *v1.Sensor) (r RunnerInterface, err error) {
 	ctx := context.Background()
 	if sensor == nil {
 		return nil, errors.New("sensor is nil, runner failed")
@@ -79,9 +71,9 @@ func NewRunner(sensor *v1.Sensor) (r RunnerInterface, err error){
 		return nil, err
 	}
 	r = &runner{
-		CTX: ctx,
+		CTX:     ctx,
 		Monitor: monitor,
-		Actor: actor,
+		Actor:   actor,
 		eventCh: make(chan event.Event),
 	}
 	return r, nil
@@ -108,5 +100,4 @@ func (r *runner) Run(stopCh chan struct{}) error {
 			return nil
 		}
 	}
-	return nil
 }

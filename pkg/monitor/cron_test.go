@@ -8,10 +8,10 @@ import (
 )
 
 func TestCronRunner(t *testing.T) {
-	opts := &CronOptions{
-		Cron: "*/1 * * * * *",
+	meta := map[string]string{
+		"cron": "*/1 * * * * *",
 	}
-	runner, err := NewCronMonitor(opts)
+	runner, err := NewCronMonitor(meta)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestChannel(t *testing.T) {
 	stopCh := make(chan struct{})
 	go func() {
 		select {
-		case <- stopCh:
+		case <-stopCh:
 			t.Log("receive stop ch")
 		}
 	}()

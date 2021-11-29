@@ -10,9 +10,9 @@ import (
 )
 
 type k8sActor struct {
-	OP string
+	OP     string
 	Source *common.Resource
-	Cfg *rest.Config
+	Cfg    *rest.Config
 }
 
 func (k k8sActor) Run(stopCh <-chan struct{}) error {
