@@ -11,12 +11,13 @@ type KubernetesResourceOperation string
 
 // possible values for KubernetesResourceOperation
 const (
-	Create      KubernetesResourceOperation = "create"        // create the resource
-	Update      KubernetesResourceOperation = "update"        // updates the resource
-	Patch       KubernetesResourceOperation = "patch"         // patch resource
-	Delete      KubernetesResourceOperation = "delete"        // deletes the resource
-	ScaleToZero KubernetesResourceOperation = "scale-to-zero" // scale resource to zero
-	ScaleUp     KubernetesResourceOperation = "scale-up"      // scale resource up
+	Create         KubernetesResourceOperation = "create"         // create the resource
+	Update         KubernetesResourceOperation = "update"         // updates the resource
+	Patch          KubernetesResourceOperation = "patch"          // patch resource
+	Delete         KubernetesResourceOperation = "delete"         // deletes the resource
+	ScaleToZero    KubernetesResourceOperation = "scaleToZero"    // scale resource to zero
+	CreateAndScale KubernetesResourceOperation = "createAndScale" // create if not exist, scale up if exist
+	ScaleUp        KubernetesResourceOperation = "scale-up"       // scale resource up
 )
 
 // StandardK8STrigger is the standard Kubernetes resource trigger
@@ -36,6 +37,12 @@ type StandardK8STrigger struct {
 	// Defaults to "application/merge-patch+json"
 	// +optional
 	PatchStrategy k8stypes.PatchType `json:"patchStrategy,omitempty" protobuf:"bytes,3,opt,name=patchStrategy,casttype=k8s.io/apimachinery/pkg/types.PatchType"`
+	// ScaleToZeroTime whether to scale to zero if  now - last event receive >=  scaleToZeroTime second
+	ScaleToZeroTime int32 `json:"scaleToZeroTime,omitempty" protobuf:"bytes,4,opt,name=scaleToZeroTime"`
+	// ScaleMaxReplica whether to scale to zero if  now - last event receive >=  scaleToZeroTime second
+	ScaleMaxReplica int32 `json:"scaleMaxReplica,omitempty" protobuf:"bytes,5,opt,name=scaleMaxReplica"`
+	// ScaleMinReplica whether to scale to zero if  now - last event receive >=  scaleToZeroTime second
+	ScaleMinReplica int32 `json:"scaleMinReplica,omitempty" protobuf:"bytes,6,opt,name=scaleMinReplica"`
 	// LiveObject specifies whether the resource should be directly fetched from K8s instead
 	// of being marshaled from the resource artifact. If set to true, the resource artifact
 	// must contain the information required to uniquely identify the resource in the cluster,
@@ -43,7 +50,7 @@ type StandardK8STrigger struct {
 	// data.
 	// Only valid for operation type `update`
 	// +optional
-	LiveObject bool `json:"liveObject,omitempty" protobuf:"varint,4,opt,name=liveObject"`
+	LiveObject bool `json:"liveObject,omitempty" protobuf:"varint,7,opt,name=liveObject"`
 }
 
 type HTTPTrigger struct {

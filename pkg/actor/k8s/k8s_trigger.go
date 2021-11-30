@@ -56,15 +56,10 @@ func ScaleObjTo(ctx context.Context, cli *kubernetes.Clientset, obj *unstructure
 }
 
 func (r *k8sActor) Exec(ctx context.Context, event commonEvent.Event) error {
-	obj, err := k8s.DecodeAndUnstructure(r.Source.Value)
-	if err != nil {
-		return err
-	}
 
-	gvr := k8s.GetGroupVersionResource(obj)
 	namespace := ""
-	if _, isClusterResource := clusterResources[gvr.Resource]; !isClusterResource {
-		namespace = obj.GetNamespace()
+	if _, isClusterResource := clusterResources[r.GVR.Resource]; !isClusterResource {
+		namespace = r.Obj.GetNamespace()
 		// Defaults to sensor's namespace
 		if namespace == "" {
 			namespace = event.Namespace
@@ -73,8 +68,8 @@ func (r *k8sActor) Exec(ctx context.Context, event commonEvent.Event) error {
 			namespace = "default"
 		}
 	}
-	obj.SetNamespace(namespace)
-	zap.L().Info("starting operate trigger resource", zap.String("gvr", gvr.String()),
+	r.Obj.SetNamespace(namespace)
+	zap.L().Info("starting operate trigger resource", zap.String("gvr", r.GVR.String()),
 		zap.String("op", string(r.OP)), zap.String("namespace", namespace))
 
 	dynamicClient, err := dynamic.NewForConfig(r.Cfg)
@@ -86,20 +81,20 @@ func (r *k8sActor) Exec(ctx context.Context, event commonEvent.Event) error {
 	}
 
 	switch r.OP {
-	case string(v1.Create):
-		labels := obj.GetLabels()
+	case v1.Create:
+		labels := r.Obj.GetLabels()
 		if labels == nil {
 			labels = make(map[string]string)
 		}
 		labels["event.eventrigger.com/action-timestamp"] = strconv.Itoa(int(time.Now().UnixNano() / int64(time.Millisecond)))
-		obj.SetLabels(labels)
-		_, err = dynamicClient.Resource(gvr).Namespace(namespace).Create(ctx, obj, metav1.CreateOptions{})
+		r.Obj.SetLabels(labels)
+		_, err = dynamicClient.Resource(r.GVR).Namespace(namespace).Create(ctx, r.Obj, metav1.CreateOptions{})
 		if err != nil {
 			return errors.Errorf("failed to create object. err: %+v\n", err)
 		}
 		return nil
-	case string(v1.Delete):
-		_, err = dynamicClient.Resource(gvr).Namespace(namespace).Get(ctx, obj.GetName(), metav1.GetOptions{})
+	case v1.Delete:
+		_, err = dynamicClient.Resource(r.GVR).Namespace(namespace).Get(ctx, r.Obj.GetName(), metav1.GetOptions{})
 
 		if err != nil && apierrors.IsNotFound(err) {
 			zap.L().Info("object not found, nothing to delete...")
@@ -108,27 +103,37 @@ func (r *k8sActor) Exec(ctx context.Context, event commonEvent.Event) error {
 			return errors.Errorf("failed to retrieve existing object. err: %+v\n", err)
 		}
 
-		err = dynamicClient.Resource(gvr).Delete(ctx, obj.GetName(), metav1.DeleteOptions{})
+		err = dynamicClient.Resource(r.GVR).Delete(ctx, r.Obj.GetName(), metav1.DeleteOptions{})
 		if err != nil {
 			return errors.Errorf("failed to delete object. err: %+v\n", err)
 		}
 		return nil
-	case string(v1.ScaleToZero):
+	case v1.ScaleToZero:
 		k8sCli, err := kubernetes.NewForConfig(r.Cfg)
 		if err != nil {
 			return err
 		}
-		err = ScaleObjTo(ctx, k8sCli, obj, 0)
+		err = ScaleObjTo(ctx, k8sCli, r.Obj, 0)
 		if err != nil {
 			return errors.Errorf("failed to scaleToZero. err: %+v\n", err)
 		}
 		return nil
-	case string(v1.ScaleUp):
+	case v1.CreateAndScale:
 		k8sCli, err := kubernetes.NewForConfig(r.Cfg)
 		if err != nil {
 			return err
 		}
-		err = ScaleObjTo(ctx, k8sCli, obj, 1)
+		err = ScaleObjTo(ctx, k8sCli, r.Obj, 1)
+		if err != nil {
+			return errors.Errorf("failed to scaleUp. err: %+v\n", err)
+		}
+		return nil
+	case v1.ScaleUp:
+		k8sCli, err := kubernetes.NewForConfig(r.Cfg)
+		if err != nil {
+			return err
+		}
+		err = ScaleObjTo(ctx, k8sCli, r.Obj, 1)
 		if err != nil {
 			return errors.Errorf("failed to scaleUp. err: %+v\n", err)
 		}
@@ -136,4 +141,28 @@ func (r *k8sActor) Exec(ctx context.Context, event commonEvent.Event) error {
 	default:
 		return errors.Errorf("unknown operation type %s", r.OP)
 	}
+}
+
+func (r *k8sActor) ScaleToZero(ctx context.Context) error {
+	k8sCli, err := kubernetes.NewForConfig(r.Cfg)
+	if err != nil {
+		return err
+	}
+	obj, err := k8s.DecodeAndUnstructure(r.Source.Value)
+	if err != nil {
+		return err
+	}
+	err = ScaleObjTo(ctx, k8sCli, obj, 0)
+	if err != nil {
+		return errors.Errorf("failed to scaleToZero. err: %+v\n", err)
+	}
+	return nil
+}
+
+func (r *k8sActor) GetScaleToZeroTime() *time.Duration {
+	return r.ScaleToZeroTime
+}
+
+func (r *k8sActor) String() string {
+	return fmt.Sprintf("%s-%s", r.GVR.String(), r.OP)
 }

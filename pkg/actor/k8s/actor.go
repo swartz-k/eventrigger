@@ -2,25 +2,30 @@ package k8s
 
 import (
 	"eventrigger.com/operator/common/consts"
+	"eventrigger.com/operator/common/utils/k8s"
 	"eventrigger.com/operator/pkg/api/core/common"
+	v1 "eventrigger.com/operator/pkg/api/core/v1"
 	"github.com/pkg/errors"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"os"
+	"time"
 )
 
 type k8sActor struct {
-	OP     string
+	OP     v1.KubernetesResourceOperation
+	Obj    *unstructured.Unstructured
+	GVR    schema.GroupVersionResource
 	Source *common.Resource
 	Cfg    *rest.Config
+	// ScaleToZeroTime
+	ScaleToZeroTime *time.Duration
 }
 
-func (k k8sActor) Run(stopCh <-chan struct{}) error {
-	panic("implement me")
-}
-
-func NewK8SActor(op string, source *common.Resource) (actor *k8sActor, err error) {
-	if source == nil {
+func NewK8SActor(t *v1.StandardK8STrigger) (actor *k8sActor, err error) {
+	if t.Source == nil {
 		return nil, errors.New("k8s actor resource is nil")
 	}
 	kubeConfig := os.Getenv(consts.EnvDefaultKubeConfig)
@@ -31,5 +36,24 @@ func NewK8SActor(op string, source *common.Resource) (actor *k8sActor, err error
 	} else {
 		cfg, err = rest.InClusterConfig()
 	}
-	return &k8sActor{OP: op, Source: source, Cfg: cfg}, nil
+	var timeDuration time.Duration
+	if t.ScaleToZeroTime != 0 {
+		timeDuration = time.Second * time.Duration(t.ScaleToZeroTime)
+	}
+
+	obj, err := k8s.DecodeAndUnstructure(t.Source.Resource.Value)
+	if err != nil {
+		return nil, err
+	}
+
+	gvr := k8s.GetGroupVersionResource(obj)
+
+	return &k8sActor{
+		Obj:             obj,
+		GVR:             gvr,
+		OP:              t.Operation,
+		Source:          t.Source.Resource,
+		Cfg:             cfg,
+		ScaleToZeroTime: &timeDuration,
+	}, nil
 }

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
+	"time"
 )
 
 type RunnerInterface interface {
@@ -22,6 +23,12 @@ type runner struct {
 	stopCh  chan struct{}
 	Monitor monitor.Interface
 	Actor   actor.Interface
+	// Config
+	IdleTime time.Duration
+
+	// Runtime
+	EventCount int64
+	EventLast  time.Time
 }
 
 func ParseSensorMonitor(m *v1.Monitor) (source monitor.Interface, err error) {
@@ -50,7 +57,7 @@ func ParseSensorTrigger(trigger *v1.Trigger) (actor actor.Interface, err error) 
 		if trigger.Template.K8s.Source == nil {
 			return nil, errors.New("init k8s actor failed, source is nil")
 		}
-		return k8s.NewK8SActor(string(trigger.Template.K8s.Operation), trigger.Template.K8s.Source.Resource)
+		return k8s.NewK8SActor(trigger.Template.K8s)
 	}
 
 	if trigger.Template.HTTP != nil {
@@ -72,6 +79,7 @@ func NewRunner(sensor *v1.Sensor) (r RunnerInterface, err error) {
 	if err != nil {
 		return nil, err
 	}
+
 	r = &runner{
 		CTX:     ctx,
 		Monitor: monitor,
@@ -81,15 +89,38 @@ func NewRunner(sensor *v1.Sensor) (r RunnerInterface, err error) {
 	return r, nil
 }
 
+func (r *runner) scaleToZero() {
+	timeDuration := r.Actor.GetScaleToZeroTime()
+	if timeDuration == nil {
+		return
+	}
+	ticker := time.NewTicker(*timeDuration)
+	select {
+	case t := <-ticker.C:
+		zap.L().Debug(fmt.Sprintf("scaleToZeroTime for %s is valid, ticker check %d", r.Actor.String(), t.Second()))
+		if t.After(r.EventLast.Add(*timeDuration)) {
+			zap.L().Info(fmt.Sprintf("ticker now %d is after lastEvent received %d + %f",
+				t.Second(), r.EventLast.Second(), timeDuration.Seconds()))
+			err := r.Actor.ScaleToZero(r.CTX)
+			if err != nil {
+				zap.L().Error(fmt.Sprintf("exec ScaleToZero failed err %s", err.Error()))
+			}
+		}
+	}
+}
+
 func (r *runner) Run(stopCh chan struct{}) error {
 	err := r.Monitor.Run(r.CTX, r.eventCh, stopCh)
 	if err != nil {
 		return err
 	}
+	go r.scaleToZero()
 	for {
 		select {
 		case event := <-r.eventCh:
 			zap.L().Info(fmt.Sprintf("receive event %s-%s, exec actor", event.Type, event.Source))
+			r.EventCount += 1
+			r.EventLast = time.Now()
 			err := r.Actor.Exec(r.CTX, event)
 			if err != nil {
 				err = errors.Wrapf(err, "actor exec with event %s-%s", event.Type, event.Source)
