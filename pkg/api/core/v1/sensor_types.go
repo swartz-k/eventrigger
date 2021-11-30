@@ -23,16 +23,6 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-// Event Support CloudEvents && Events
-type Event struct {
-	// Source is a unique name of this dependency
-	Source string `json:"source" protobuf:"bytes,1,name=source"`
-	// Type is a unique name of this dependency
-	Type string `json:"type" protobuf:"bytes,2,name=type"`
-	// ContentType
-	ContentType string `json:"contentType" protobuf:"bytes,3,opt,name=contentType"`
-}
-
 // TriggerTemplate is the template that describes trigger specification.
 type TriggerTemplate struct {
 	// Name is a unique name of the action to take.
@@ -60,8 +50,6 @@ type Trigger struct {
 type SensorSpec struct {
 	// Foo is an example field of Sensor. Edit sensor_types.go to remove/update
 	Monitor Monitor `json:"monitor"  protobuf:"bytes,1,name=monitor"`
-	// Event is an example field of Sensor. Edit sensor_types.go to remove/update
-	Event Event `json:"event" protobuf:"bytes,2,name=event"`
 	// Triggers is a list of the things that this sensor evokes. These are the outputs from this sensor.
 	Trigger Trigger `json:"trigger" protobuf:"bytes,3,rep,name=trigger"`
 }

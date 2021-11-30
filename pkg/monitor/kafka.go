@@ -7,7 +7,6 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/mitchellh/mapstructure"
 	"github.com/pkg/errors"
-	"github.com/robfig/cron/v3"
 	"go.uber.org/zap"
 	"strings"
 	"sync"
@@ -55,10 +54,9 @@ type KafkaOptions struct {
 }
 
 type KafkaRunner struct {
-	Opts       *KafkaOptions
-	Config     *sarama.Config
-	CronMapper map[cron.EntryID]chan struct{}
-	StopCh     <-chan struct{}
+	Opts   *KafkaOptions
+	Config *sarama.Config
+	StopCh <-chan struct{}
 }
 
 func parseKafkaMeta(meta map[string]string) (opts *KafkaOptions, err error) {
