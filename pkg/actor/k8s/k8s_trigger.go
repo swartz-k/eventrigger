@@ -2,9 +2,11 @@ package k8s
 
 import (
 	"context"
+	"eventrigger.com/operator/common/consts"
 	commonEvent "eventrigger.com/operator/common/event"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/kubernetes"
+	"strconv"
 
 	"eventrigger.com/operator/common/utils/k8s"
 	v1 "eventrigger.com/operator/pkg/api/core/v1"
@@ -15,7 +17,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/dynamic"
-	"strconv"
+
 	"time"
 )
 
@@ -86,7 +88,7 @@ func (r *k8sActor) Exec(ctx context.Context, event commonEvent.Event) error {
 		if labels == nil {
 			labels = make(map[string]string)
 		}
-		labels["event.eventrigger.com/action-timestamp"] = strconv.Itoa(int(time.Now().UnixNano() / int64(time.Millisecond)))
+		SetEventLabel(event, labels)
 		r.Obj.SetLabels(labels)
 		_, err = dynamicClient.Resource(r.GVR).Namespace(namespace).Create(ctx, r.Obj, metav1.CreateOptions{})
 		if err != nil {
@@ -123,6 +125,9 @@ func (r *k8sActor) Exec(ctx context.Context, event commonEvent.Event) error {
 		if err != nil {
 			return err
 		}
+		labels := r.Obj.GetLabels()
+		SetEventLabel(event, labels)
+		r.Obj.SetLabels(labels)
 		err = ScaleObjTo(ctx, k8sCli, r.Obj, 1)
 		if err != nil {
 			return errors.Errorf("failed to scaleUp. err: %+v\n", err)
@@ -133,6 +138,9 @@ func (r *k8sActor) Exec(ctx context.Context, event commonEvent.Event) error {
 		if err != nil {
 			return err
 		}
+		labels := r.Obj.GetLabels()
+		SetEventLabel(event, labels)
+		r.Obj.SetLabels(labels)
 		err = ScaleObjTo(ctx, k8sCli, r.Obj, 1)
 		if err != nil {
 			return errors.Errorf("failed to scaleUp. err: %+v\n", err)
@@ -165,4 +173,13 @@ func (r *k8sActor) GetScaleToZeroTime() *time.Duration {
 
 func (r *k8sActor) String() string {
 	return fmt.Sprintf("%s-%s", r.GVR.String(), r.OP)
+}
+
+func SetEventLabel(event commonEvent.Event, labels map[string]string) {
+	labels[consts.ActionTimestamp] = strconv.Itoa(int(time.Now().UnixNano() / int64(time.Millisecond)))
+	labels[consts.EventNamespace] = event.Namespace
+	labels[consts.EventType] = event.Type
+	labels[consts.EventSource] = event.Source
+	labels[consts.EventData] = event.Data
+	labels[consts.EventVersion] = event.Version
 }
