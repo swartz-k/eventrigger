@@ -35,6 +35,8 @@ func ParseSensorMonitor(m *v1.Monitor) (source monitor.Interface, err error) {
 		return monitor.NewCronMonitor(m.Meta)
 	case string(v1.KafkaMonitorType):
 		return monitor.NewKafkaMonitor(m.Meta)
+	case string(v1.RedisMonitorType):
+		return monitor.NewRedisMonitor(m.Meta)
 	default:
 		return nil, errors.New(fmt.Sprintf("not support monitor of %s", m.Type))
 	}
