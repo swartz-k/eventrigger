@@ -9,6 +9,7 @@ require (
 	github.com/cloudevents/sdk-go/protocol/kafka_sarama/v2 v2.6.1
 	github.com/cloudevents/sdk-go/v2 v2.6.1
 	github.com/eclipse/paho.mqtt.golang v1.3.5
+	github.com/gin-gonic/gin v1.7.7
 	github.com/go-redis/redis/v8 v8.11.4
 	github.com/google/uuid v1.1.2
 	github.com/mitchellh/mapstructure v1.4.1

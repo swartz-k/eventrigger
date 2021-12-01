@@ -11,13 +11,11 @@ type KubernetesResourceOperation string
 
 // possible values for KubernetesResourceOperation
 const (
-	Create         KubernetesResourceOperation = "create"         // create the resource
-	Update         KubernetesResourceOperation = "update"         // updates the resource
-	Patch          KubernetesResourceOperation = "patch"          // patch resource
-	Delete         KubernetesResourceOperation = "delete"         // deletes the resource
-	ScaleToZero    KubernetesResourceOperation = "scaleToZero"    // scale resource to zero
-	CreateAndScale KubernetesResourceOperation = "createAndScale" // create if not exist, scale up if exist
-	ScaleUp        KubernetesResourceOperation = "scale-up"       // scale resource up
+	Create KubernetesResourceOperation = "create" // create the resource every event
+	Update KubernetesResourceOperation = "update" // updates the resource
+	Patch  KubernetesResourceOperation = "patch"  // patch resource
+	Delete KubernetesResourceOperation = "delete" // deletes the resource
+	Scale  KubernetesResourceOperation = "scale"  // scale resource to zero
 )
 
 // StandardK8STrigger is the standard Kubernetes resource trigger

@@ -20,6 +20,7 @@ import (
 	"context"
 	"eventrigger.com/operator/common/consts"
 	"eventrigger.com/operator/common/event"
+	"eventrigger.com/operator/common/server"
 	"eventrigger.com/operator/common/sync/errsgroup"
 	"eventrigger.com/operator/pkg/generated/clientset/versioned"
 	"eventrigger.com/operator/pkg/generated/informers/externalversions"
@@ -44,13 +45,12 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	"eventrigger.com/operator/pkg/controllers/sensor"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
-
-	"eventrigger.com/operator/pkg/controllers/sensor"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -184,6 +184,9 @@ func NewOperator(options *OperatorOptions) (op *Operator, err error) {
 	op.SensorLister = sensorInformer.Lister()
 	op.SensorSynced = sensorInformer.Informer().HasSynced
 
+	if err != nil {
+		return nil, errors.Wrap(err, "init global http server failed")
+	}
 	return op, nil
 }
 
@@ -259,6 +262,9 @@ func (op *Operator) Run() error {
 	undo := zap.ReplaceGlobals(logger)
 	defer undo()
 
+	op.ErrorGroup.Go(func() error {
+		return server.GlobalHttpServer.Run(fmt.Sprintf(":%d", op.Options.Port))
+	})
 	zap.L().Info("Starting workers")
 	op.InformerFactory.Start(op.stopCh)
 

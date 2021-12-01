@@ -3,6 +3,7 @@ package monitor
 import (
 	"context"
 	"eventrigger.com/operator/common/event"
+	v1 "eventrigger.com/operator/pkg/api/core/v1"
 	"fmt"
 	"github.com/Shopify/sarama"
 	"github.com/mitchellh/mapstructure"
@@ -235,9 +236,7 @@ func (m *KafkaRunner) Run(ctx context.Context, eventChannel chan event.Event, st
 			for {
 				select {
 				case message := <-pc.Messages():
-					eventChannel <- event.Event{
-						Source: message.Topic,
-					}
+					eventChannel <- event.NewSimpleEvent(string(v1.KafkaMonitorType), message.Topic, string(message.Value))
 				case <-stopCh:
 					return nil
 				}
