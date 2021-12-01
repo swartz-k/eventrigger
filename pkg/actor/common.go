@@ -10,7 +10,7 @@ type Interface interface {
 	String() string
 	Exec(ctx context.Context, event event.Event) error
 
-	// GetScaleToZeroTime scale to zero
-	GetScaleToZeroTime() *time.Duration
-	ScaleToZero(ctx context.Context) error
+	// GetTickerTime to do check
+	GetTickerTime() time.Duration
+	Check(ctx context.Context, nowTime time.Time, lastEvent time.Time) error
 }

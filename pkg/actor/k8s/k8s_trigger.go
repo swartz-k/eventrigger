@@ -4,11 +4,11 @@ import (
 	"context"
 	"eventrigger.com/operator/common/consts"
 	commonEvent "eventrigger.com/operator/common/event"
+	"eventrigger.com/operator/common/k8s"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/kubernetes"
 	"strconv"
 
-	"eventrigger.com/operator/common/utils/k8s"
 	v1 "eventrigger.com/operator/pkg/api/core/v1"
 	"fmt"
 	"github.com/pkg/errors"
@@ -26,6 +26,7 @@ var clusterResources = map[string]bool{
 	"nodes":      true,
 }
 
+// ScaleObjTo only scale to 0 or increase replicas
 func ScaleObjTo(ctx context.Context, cli *kubernetes.Clientset, obj *unstructured.Unstructured, replicas int32) (err error) {
 	namespace := obj.GetNamespace()
 	name := obj.GetName()
@@ -35,10 +36,11 @@ func ScaleObjTo(ctx context.Context, cli *kubernetes.Clientset, obj *unstructure
 		if err != nil {
 			return errors.Wrapf(err, "get scale for statefulset %s-%s", namespace, name)
 		}
-		s.Spec.Replicas = replicas
-		_, err = cli.AppsV1().StatefulSets(namespace).UpdateScale(ctx, name, s, metav1.UpdateOptions{})
-		if err != nil {
-			return errors.Wrapf(err, "scale statefulset %s-%s to %d", namespace, name, replicas)
+		if replicas == 0 || s.Spec.Replicas < replicas {
+			_, err = cli.AppsV1().StatefulSets(namespace).UpdateScale(ctx, name, s, metav1.UpdateOptions{})
+			if err != nil {
+				return errors.Wrapf(err, "scale statefulset %s-%s to %d", namespace, name, replicas)
+			}
 		}
 		return nil
 	case "deployment":
@@ -46,10 +48,11 @@ func ScaleObjTo(ctx context.Context, cli *kubernetes.Clientset, obj *unstructure
 		if err != nil {
 			return errors.Wrapf(err, "get scale for deployment %s-%s", namespace, name)
 		}
-		s.Spec.Replicas = replicas
-		_, err = cli.AppsV1().Deployments(namespace).UpdateScale(ctx, name, s, metav1.UpdateOptions{})
-		if err != nil {
-			return errors.Wrapf(err, "scale deployment %s-%s to %d", namespace, name, replicas)
+		if replicas == 0 || s.Spec.Replicas < replicas {
+			_, err = cli.AppsV1().Deployments(namespace).UpdateScale(ctx, name, s, metav1.UpdateOptions{})
+			if err != nil {
+				return errors.Wrapf(err, "scale deployment %s-%s to %d", namespace, name, replicas)
+			}
 		}
 		return nil
 	default:
@@ -58,7 +61,6 @@ func ScaleObjTo(ctx context.Context, cli *kubernetes.Clientset, obj *unstructure
 }
 
 func (r *k8sActor) Exec(ctx context.Context, event commonEvent.Event) error {
-
 	namespace := ""
 	if _, isClusterResource := clusterResources[r.GVR.Resource]; !isClusterResource {
 		namespace = r.Obj.GetNamespace()
@@ -110,40 +112,27 @@ func (r *k8sActor) Exec(ctx context.Context, event commonEvent.Event) error {
 			return errors.Errorf("failed to delete object. err: %+v\n", err)
 		}
 		return nil
-	case v1.ScaleToZero:
+	case v1.Scale:
+		// Create if not exist
+		// see label whether scaleToZero ScaleToZeroEnable
 		k8sCli, err := kubernetes.NewForConfig(r.Cfg)
 		if err != nil {
 			return err
 		}
-		err = ScaleObjTo(ctx, k8sCli, r.Obj, 0)
+		var existObj *unstructured.Unstructured
+		existObj, err = dynamicClient.Resource(r.GVR).Get(ctx, r.Obj.GetName(), metav1.GetOptions{})
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				existObj, err = dynamicClient.Resource(r.GVR).Create(ctx, r.Obj, metav1.CreateOptions{})
+			} else {
+				return errors.Wrapf(err, "failed scale when get obj")
+			}
+		}
+		// todo: HPA with event
+		// todo: HPA with resource/limit
+		err = ScaleObjTo(ctx, k8sCli, existObj, 1)
 		if err != nil {
 			return errors.Errorf("failed to scaleToZero. err: %+v\n", err)
-		}
-		return nil
-	case v1.CreateAndScale:
-		k8sCli, err := kubernetes.NewForConfig(r.Cfg)
-		if err != nil {
-			return err
-		}
-		labels := r.Obj.GetLabels()
-		SetEventLabel(event, labels)
-		r.Obj.SetLabels(labels)
-		err = ScaleObjTo(ctx, k8sCli, r.Obj, 1)
-		if err != nil {
-			return errors.Errorf("failed to scaleUp. err: %+v\n", err)
-		}
-		return nil
-	case v1.ScaleUp:
-		k8sCli, err := kubernetes.NewForConfig(r.Cfg)
-		if err != nil {
-			return err
-		}
-		labels := r.Obj.GetLabels()
-		SetEventLabel(event, labels)
-		r.Obj.SetLabels(labels)
-		err = ScaleObjTo(ctx, k8sCli, r.Obj, 1)
-		if err != nil {
-			return errors.Errorf("failed to scaleUp. err: %+v\n", err)
 		}
 		return nil
 	default:
@@ -151,7 +140,10 @@ func (r *k8sActor) Exec(ctx context.Context, event commonEvent.Event) error {
 	}
 }
 
-func (r *k8sActor) ScaleToZero(ctx context.Context) error {
+func (r *k8sActor) Check(ctx context.Context, now, lastEvent time.Time) error {
+	if !r.EnableScaleZero || lastEvent.Add(r.ScaleToZeroTime).After(now) {
+		return nil
+	}
 	k8sCli, err := kubernetes.NewForConfig(r.Cfg)
 	if err != nil {
 		return err
@@ -167,7 +159,7 @@ func (r *k8sActor) ScaleToZero(ctx context.Context) error {
 	return nil
 }
 
-func (r *k8sActor) GetScaleToZeroTime() *time.Duration {
+func (r *k8sActor) GetTickerTime() time.Duration {
 	return r.ScaleToZeroTime
 }
 
@@ -176,6 +168,9 @@ func (r *k8sActor) String() string {
 }
 
 func SetEventLabel(event commonEvent.Event, labels map[string]string) {
+	if event.UUID != "" {
+		labels[consts.UUIDLabel] = event.UUID
+	}
 	labels[consts.ActionTimestamp] = strconv.Itoa(int(time.Now().UnixNano() / int64(time.Millisecond)))
 	labels[consts.EventNamespace] = event.Namespace
 	labels[consts.EventType] = event.Type

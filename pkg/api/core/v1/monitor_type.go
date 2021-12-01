@@ -9,6 +9,9 @@ var (
 	CronMonitorType  MonitorType = "cron"
 	// KafkaMonitorType kafka consume topic
 	KafkaMonitorType MonitorType = "kafka"
+	// HttpMonitorType default will listen on 8081, new monitor will add redirect mapper
+	HttpMonitorType    MonitorType = "http"
+	K8sHttpMonitorType MonitorType = "k8s_http"
 )
 
 // Monitor common monitor which can produce events to trigger K8S resource.
@@ -54,4 +57,10 @@ type CloudEventsMonitor struct {
 	Source  string `json:"source" yaml:"source" protobuf:"bytes,1,opt,name=source"`
 	Type    string `json:"type" yaml:"type" protobuf:"bytes,2,opt,name=type"`
 	Version string `json:"version" yaml:"version" protobuf:"bytes,3,opt,name=version"`
+}
+
+type HttpMonitor struct {
+	Hosts   []string `json:"hosts" yaml:"hosts" protobuf:"bytes,1,opt,name=hosts"`
+	Headers []string `yaml:"headers" yaml:"headers" protobuf:"bytes,2,opt,name=headers"`
+	Suffix  string   `yaml:"suffix" yaml:"suffix" protobuf:"bytes,3,opt,name=suffix"`
 }

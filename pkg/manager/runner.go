@@ -31,10 +31,11 @@ type runner struct {
 	EventLast  time.Time
 }
 
-func ParseSensorMonitor(m *v1.Monitor) (source monitor.Interface, err error) {
-	if m == nil || len(m.Meta) == 0 {
-		return nil, errors.New(fmt.Sprintf("%+v monitor or meta is nil", m))
+func ParseSensorMonitor(spec *v1.SensorSpec) (source monitor.Interface, err error) {
+	if spec == nil || len(spec.Monitor.Meta) == 0 {
+		return nil, errors.New(fmt.Sprintf("%+v monitor or meta is nil", spec))
 	}
+	m := spec.Monitor
 	switch m.Type {
 	case string(v1.MQTTMonitorType):
 		return monitor.NewMQTTMonitor(m.Meta)
@@ -44,15 +45,27 @@ func ParseSensorMonitor(m *v1.Monitor) (source monitor.Interface, err error) {
 		return monitor.NewKafkaMonitor(m.Meta)
 	case string(v1.RedisMonitorType):
 		return monitor.NewRedisMonitor(m.Meta)
+	case string(v1.HttpMonitorType):
+		monitor.NewHttpMonitor(m.Meta)
+	case string(v1.K8sHttpMonitorType):
+		if spec.Trigger.Template == nil {
+			return nil, errors.New("trigger cannot be nil while using k8s http monitor")
+		}
+		if spec.Trigger.Template.K8s == nil {
+			return nil, errors.New("k8s trigger cannot be nil while using k8s http monitor")
+		}
+		return monitor.NewK8sHttpMonitor(m.Meta, &spec.Trigger)
 	default:
 		return nil, errors.New(fmt.Sprintf("not support monitor of %s", m.Type))
 	}
+	return
 }
 
-func ParseSensorTrigger(trigger *v1.Trigger) (actor actor.Interface, err error) {
-	if trigger.Template == nil {
+func ParseSensorTrigger(spec *v1.SensorSpec) (actor actor.Interface, err error) {
+	if spec == nil || spec.Trigger.Template == nil {
 		return nil, errors.New("trigger template is nil")
 	}
+	trigger := spec.Trigger
 	if trigger.Template.K8s != nil {
 		if trigger.Template.K8s.Source == nil {
 			return nil, errors.New("init k8s actor failed, source is nil")
@@ -71,11 +84,11 @@ func NewRunner(sensor *v1.Sensor) (r RunnerInterface, err error) {
 	if sensor == nil {
 		return nil, errors.New("sensor is nil, runner failed")
 	}
-	monitor, err := ParseSensorMonitor(&sensor.Spec.Monitor)
+	monitor, err := ParseSensorMonitor(&sensor.Spec)
 	if err != nil {
 		return nil, err
 	}
-	actor, err := ParseSensorTrigger(&sensor.Spec.Trigger)
+	actor, err := ParseSensorTrigger(&sensor.Spec)
 	if err != nil {
 		return nil, err
 	}
@@ -89,22 +102,17 @@ func NewRunner(sensor *v1.Sensor) (r RunnerInterface, err error) {
 	return r, nil
 }
 
-func (r *runner) scaleToZero() {
-	timeDuration := r.Actor.GetScaleToZeroTime()
-	if timeDuration == nil {
+func (r *runner) tickerCheck() {
+	checkDuration := r.Actor.GetTickerTime()
+	if checkDuration == 0 {
 		return
 	}
-	ticker := time.NewTicker(*timeDuration)
+	ticker := time.NewTicker(checkDuration)
 	select {
 	case t := <-ticker.C:
-		zap.L().Debug(fmt.Sprintf("scaleToZeroTime for %s is valid, ticker check %d", r.Actor.String(), t.Second()))
-		if t.After(r.EventLast.Add(*timeDuration)) {
-			zap.L().Info(fmt.Sprintf("ticker now %d is after lastEvent received %d + %f",
-				t.Second(), r.EventLast.Second(), timeDuration.Seconds()))
-			err := r.Actor.ScaleToZero(r.CTX)
-			if err != nil {
-				zap.L().Error(fmt.Sprintf("exec ScaleToZero failed err %s", err.Error()))
-			}
+		err := r.Actor.Check(r.CTX, t, r.EventLast)
+		if err != nil {
+			zap.L().Error(fmt.Sprintf("exec Check failed err %s at %d", err.Error(), t.UnixNano()))
 		}
 	}
 }
@@ -114,7 +122,7 @@ func (r *runner) Run(stopCh chan struct{}) error {
 	if err != nil {
 		return err
 	}
-	go r.scaleToZero()
+	go r.tickerCheck()
 	for {
 		select {
 		case event := <-r.eventCh:
