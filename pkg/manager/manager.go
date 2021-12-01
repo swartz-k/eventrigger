@@ -24,6 +24,7 @@ import (
 	"eventrigger.com/operator/common/sync/errsgroup"
 	"eventrigger.com/operator/pkg/generated/clientset/versioned"
 	"eventrigger.com/operator/pkg/generated/informers/externalversions"
+	"github.com/google/go-cmp/cmp"
 	"k8s.io/client-go/tools/clientcmd"
 	"os"
 	"sync"
@@ -86,7 +87,7 @@ type Operator struct {
 	Options OperatorOptions
 
 	// map
-	RunnerChannelMap map[string]chan struct{}
+	RunnerChannelMap map[string]*chan struct{}
 
 	// controller
 	ErrorGroup     errsgroup.Group
@@ -123,7 +124,7 @@ func NewOperator(options *OperatorOptions) (op *Operator, err error) {
 	op = &Operator{
 		CTX:              context.Background(),
 		Options:          *options,
-		RunnerChannelMap: make(map[string]chan struct{}),
+		RunnerChannelMap: make(map[string]*chan struct{}),
 		EventChannel:     make(chan event.Event, 100),
 		MonitorChannel:   make(chan eventriggerv1.Monitor, 100),
 		Workqueue:        workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), consts.SensorName),
@@ -206,7 +207,7 @@ func (op *Operator) AddSensorHandler(obj interface{}) {
 		return
 	}
 	ch := make(chan struct{})
-	op.RunnerChannelMap[key] = ch
+	op.RunnerChannelMap[key] = &ch
 	op.ErrorGroup.Go(func() error {
 		defer delete(op.RunnerChannelMap, key)
 		runner, err := NewRunner(object)
@@ -215,7 +216,7 @@ func (op *Operator) AddSensorHandler(obj interface{}) {
 			zap.L().Error(err.Error())
 			return err
 		}
-		err = runner.Run(ch)
+		err = runner.Run(&ch)
 		if err != nil {
 			err = errors.Wrap(err, "run runner")
 			zap.L().Error(err.Error())
@@ -227,23 +228,80 @@ func (op *Operator) AddSensorHandler(obj interface{}) {
 }
 
 func (op *Operator) UpdateSensorHandler(oldObj, newObj interface{}) {
-	zap.L().Info("update obj")
+	var newObject *eventriggerv1.Sensor
+	var oldObject *eventriggerv1.Sensor
+	var ok bool
+	if oldObject, ok = oldObj.(*eventriggerv1.Sensor); !ok {
+		zap.L().Error("decode old k8s unstructured")
+		return
+	}
+	if newObject, ok = newObj.(*eventriggerv1.Sensor); !ok {
+		zap.L().Error("decode new k8s unstructured")
+		return
+	}
+	if cmp.Equal(oldObject, newObject) {
+		zap.L().Debug("old obj and new obj spec is same")
+		return
+	}
+
+	zap.L().Info(fmt.Sprintf("old and new object diff %s", cmp.Diff(oldObject, newObject)))
+	key, err := cache.MetaNamespaceKeyFunc(oldObj)
+	if err != nil {
+		utilruntime.HandleError(err)
+		return
+	}
+	zap.L().Info(fmt.Sprintf("update try delete obj %s res %+v", key, err))
+	var ch *chan struct{}
+
+	if ch, ok = op.RunnerChannelMap[key]; !ok {
+		return
+	}
+	*ch <- struct{}{}
+	delete(op.RunnerChannelMap, key)
+
+	key, err = cache.MetaNamespaceKeyFunc(newObj)
+	if err != nil {
+		utilruntime.HandleError(err)
+		return
+	}
+
+	zap.L().Info(fmt.Sprintf("update start new runner with key %s", key))
+
+	newCh := make(chan struct{})
+	op.RunnerChannelMap[key] = &newCh
+	op.ErrorGroup.Go(func() error {
+		defer delete(op.RunnerChannelMap, key)
+		runner, err := NewRunner(newObject)
+		if err != nil {
+			err = errors.Wrap(err, "init runner")
+			zap.L().Error(err.Error())
+			return err
+		}
+		err = runner.Run(&newCh)
+		if err != nil {
+			err = errors.Wrap(err, "run runner")
+			zap.L().Error(err.Error())
+			return err
+		}
+		zap.L().Info(fmt.Sprintf("runner with key %s done", key))
+		return nil
+	})
 }
 
 func (op *Operator) DeleteSensorHandler(obj interface{}) {
-	zap.L().Info("delete obj")
 	key, err := cache.MetaNamespaceKeyFunc(obj)
 	if err != nil {
 		utilruntime.HandleError(err)
 		return
 	}
-	var ch chan struct{}
+	zap.L().Info(fmt.Sprintf("try delete obj %s res %s", key, err.Error()))
+	var ch *chan struct{}
 	var ok bool
 
 	if ch, ok = op.RunnerChannelMap[key]; !ok {
 		return
 	}
-	ch <- struct{}{}
+	*ch <- struct{}{}
 	delete(op.RunnerChannelMap, key)
 }
 

@@ -54,7 +54,7 @@ func NewHttpMonitor(meta map[string]string) (*HttpRunner, error) {
 
 	return m, nil
 }
-func (m *HttpRunner) Handler(c *gin.Context) {
+func (m *HttpRunner) Handler(c *gin.Context) (int, interface{}, error) {
 	// send event to actor
 	uuid := c.Request.Header.Get(consts.UUIDLabelHeader)
 	var data string
@@ -64,7 +64,9 @@ func (m *HttpRunner) Handler(c *gin.Context) {
 	} else {
 		data = string(rawData)
 	}
-	m.EventChannel <- event.NewEvent("", string(v1.HttpMonitorType), "", "", data, uuid)
+	sEvent := event.NewEvent("", string(v1.HttpMonitorType), "", "", data, uuid)
+	m.EventChannel <- sEvent
+	return 0, sEvent, nil
 }
 
 func (m *HttpRunner) Run(ctx context.Context, eventChannel chan event.Event, stopCh <-chan struct{}) error {

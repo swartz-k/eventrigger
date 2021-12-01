@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"github.com/gin-gonic/gin"
+	"github.com/pkg/errors"
 	"go.uber.org/zap"
 	"net/http"
 	"strings"
@@ -14,15 +15,17 @@ var (
 
 type HttpServer struct {
 	gin                 *gin.Engine
-	hostHandlerMapper   map[string]gin.HandlerFunc
-	headerHandlerMapper map[string]gin.HandlerFunc
+	hostHandlerMapper   map[string]Handler
+	headerHandlerMapper map[string]Handler
 }
+
+type Handler func(ctx *gin.Context) (int, interface{}, error)
 
 func NewHttpServer() (server *HttpServer) {
 	server = &HttpServer{
 		gin:                 gin.New(),
-		hostHandlerMapper:   make(map[string]gin.HandlerFunc),
-		headerHandlerMapper: make(map[string]gin.HandlerFunc),
+		hostHandlerMapper:   make(map[string]Handler),
+		headerHandlerMapper: make(map[string]Handler),
 	}
 	server.Init()
 	return server
@@ -37,21 +40,30 @@ func (s *HttpServer) Init() {
 
 func (s *HttpServer) CommonDispatchHandler(c *gin.Context) {
 	if handler, ok := s.hostHandlerMapper[c.Request.Host]; ok {
-		zap.L().Debug(fmt.Sprintf("match host: %s", c.Request.Host))
-		handler(c)
+		zap.L().Info(fmt.Sprintf("match host: %s, handler %+v", c.Request.Host, handler))
+		var data interface{}
+		code := 0
+		err := errors.New("")
+		code, data, err = handler(c)
+
+		zap.L().Info(fmt.Sprintf("request proxy of host: %s done, data %s, code %d, err %+v",
+			c.Request.Host, data, code, err))
 		return
 	}
 	for key, values := range c.Request.Header {
 		compare := fmt.Sprintf("%s=%s", key, strings.Join(values, ","))
 		if handler, ok := s.headerHandlerMapper[compare]; ok {
-			zap.L().Debug(fmt.Sprintf("match header: %s", compare))
-			handler(c)
+			zap.L().Info(fmt.Sprintf("match header: %s,  handler %+v", compare, handler))
+			code, data, err := handler(c)
+			zap.L().Info(fmt.Sprintf("request proxy of header: %s done, data %s, code %d, err %+v",
+				compare, data, code, err))
 			return
 		}
 	}
+	return
 }
 
-func (s *HttpServer) AddOrReplaceHostMap(host string, handler gin.HandlerFunc) error {
+func (s *HttpServer) AddOrReplaceHostMap(host string, handler Handler) error {
 	if _, exist := s.hostHandlerMapper[host]; exist {
 		return fmt.Errorf("host handler map exist")
 	}
@@ -63,7 +75,7 @@ func (s *HttpServer) DeleteHostMap(host string) {
 	delete(s.hostHandlerMapper, host)
 }
 
-func (s *HttpServer) AddOrReplaceHeaderMap(header string, handler gin.HandlerFunc) error {
+func (s *HttpServer) AddOrReplaceHeaderMap(header string, handler Handler) error {
 	if _, exist := s.headerHandlerMapper[header]; exist {
 		return fmt.Errorf("header handler map exist")
 	}

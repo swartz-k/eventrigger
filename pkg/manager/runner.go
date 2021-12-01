@@ -14,7 +14,7 @@ import (
 )
 
 type RunnerInterface interface {
-	Run(stopCh chan struct{}) error
+	Run(stopCh *chan struct{}) error
 }
 
 type runner struct {
@@ -33,7 +33,7 @@ type runner struct {
 
 func ParseSensorMonitor(spec *v1.SensorSpec) (source monitor.Interface, err error) {
 	if spec == nil || len(spec.Monitor.Meta) == 0 {
-		return nil, errors.New(fmt.Sprintf("%+v monitor or meta is nil", spec))
+		return nil, errors.New(fmt.Sprintf("sensor %s monitor %+v or meta is nil",  spec))
 	}
 	m := spec.Monitor
 	switch m.Type {
@@ -86,17 +86,18 @@ func NewRunner(sensor *v1.Sensor) (r RunnerInterface, err error) {
 	}
 	monitor, err := ParseSensorMonitor(&sensor.Spec)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "parse sensor %s/%s monitor", sensor.Name, sensor.Namespace)
 	}
 	actor, err := ParseSensorTrigger(&sensor.Spec)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "parse sensor %s/%s trigger",  sensor.Name, sensor.Namespace)
 	}
 
 	r = &runner{
 		CTX:     ctx,
 		Monitor: monitor,
 		Actor:   actor,
+		EventLast: time.Now(),
 		eventCh: make(chan event.Event),
 	}
 	return r, nil
@@ -108,17 +109,19 @@ func (r *runner) tickerCheck() {
 		return
 	}
 	ticker := time.NewTicker(checkDuration)
-	select {
-	case t := <-ticker.C:
-		err := r.Actor.Check(r.CTX, t, r.EventLast)
-		if err != nil {
-			zap.L().Error(fmt.Sprintf("exec Check failed err %s at %d", err.Error(), t.UnixNano()))
+	for {
+		select {
+		case t := <-ticker.C:
+			err := r.Actor.Check(r.CTX, t, r.EventLast)
+			if err != nil {
+				zap.L().Error(fmt.Sprintf("exec Check failed err %s at %d", err.Error(), t.UnixNano()))
+			}
 		}
 	}
 }
 
-func (r *runner) Run(stopCh chan struct{}) error {
-	err := r.Monitor.Run(r.CTX, r.eventCh, stopCh)
+func (r *runner) Run(stopCh *chan struct{}) error {
+	err := r.Monitor.Run(r.CTX, r.eventCh, *stopCh)
 	if err != nil {
 		return err
 	}
@@ -136,7 +139,7 @@ func (r *runner) Run(stopCh chan struct{}) error {
 			} else {
 				zap.L().Info(fmt.Sprintf("successfully exec event %s-%s with actor", event.Type, event.Source))
 			}
-		case <-stopCh:
+		case <- *stopCh:
 			zap.L().Warn("receive stop channel, stop!!!")
 			return nil
 		}
