@@ -31,7 +31,7 @@ func ScaleObjTo(ctx context.Context, cli *kubernetes.Clientset, obj *unstructure
 	namespace := obj.GetNamespace()
 	name := obj.GetName()
 	switch obj.GetKind() {
-	case "statefulset":
+	case consts.StatefulSetKind:
 		s, err := cli.AppsV1().StatefulSets(namespace).GetScale(ctx, name, metav1.GetOptions{})
 		if err != nil {
 			return errors.Wrapf(err, "get scale for statefulset %s-%s", namespace, name)
@@ -43,12 +43,13 @@ func ScaleObjTo(ctx context.Context, cli *kubernetes.Clientset, obj *unstructure
 			}
 		}
 		return nil
-	case "deployment":
+	case consts.DeploymentKind:
 		s, err := cli.AppsV1().Deployments(namespace).GetScale(ctx, name, metav1.GetOptions{})
 		if err != nil {
 			return errors.Wrapf(err, "get scale for deployment %s-%s", namespace, name)
 		}
 		if replicas == 0 || s.Spec.Replicas < replicas {
+			s.Spec.Replicas = replicas
 			_, err = cli.AppsV1().Deployments(namespace).UpdateScale(ctx, name, s, metav1.UpdateOptions{})
 			if err != nil {
 				return errors.Wrapf(err, "scale deployment %s-%s to %d", namespace, name, replicas)
@@ -120,10 +121,16 @@ func (r *k8sActor) Exec(ctx context.Context, event commonEvent.Event) error {
 			return err
 		}
 		var existObj *unstructured.Unstructured
-		existObj, err = dynamicClient.Resource(r.GVR).Get(ctx, r.Obj.GetName(), metav1.GetOptions{})
+		// todo: update resource
+		existObj, err = dynamicClient.Resource(r.GVR).Namespace(r.Obj.GetNamespace()).Get(ctx, r.Obj.GetName(), metav1.GetOptions{})
 		if err != nil {
+			zap.L().Info(fmt.Sprintf("Get resource of gvr %s, name %s, err %s", r.GVR.String(), r.Obj.GetName(), err.Error()))
 			if apierrors.IsNotFound(err) {
-				existObj, err = dynamicClient.Resource(r.GVR).Create(ctx, r.Obj, metav1.CreateOptions{})
+				existObj, err = dynamicClient.Resource(r.GVR).Namespace(r.Obj.GetNamespace()).Create(ctx, r.Obj, metav1.CreateOptions{})
+				if err != nil {
+					zap.L().Info(fmt.Sprintf("Create resource of gvr %s, name %s, err %s", r.GVR.String(), r.Obj.GetName(), err.Error()))
+					return err
+				}
 			} else {
 				return errors.Wrapf(err, "failed scale when get obj")
 			}
@@ -132,7 +139,7 @@ func (r *k8sActor) Exec(ctx context.Context, event commonEvent.Event) error {
 		// todo: HPA with resource/limit
 		err = ScaleObjTo(ctx, k8sCli, existObj, 1)
 		if err != nil {
-			return errors.Errorf("failed to scaleToZero. err: %+v\n", err)
+			return errors.Errorf("failed to scaleObjTo. err: %+v\n", err)
 		}
 		return nil
 	default:
@@ -141,17 +148,22 @@ func (r *k8sActor) Exec(ctx context.Context, event commonEvent.Event) error {
 }
 
 func (r *k8sActor) Check(ctx context.Context, now, lastEvent time.Time) error {
+	zap.L().Info(fmt.Sprintf("check enableScaleZero %v, lastEvent %s and now %s", r.EnableScaleZero,
+		lastEvent.String(), now.String()))
 	if !r.EnableScaleZero || lastEvent.Add(r.ScaleToZeroTime).After(now) {
 		return nil
-	}
-	k8sCli, err := kubernetes.NewForConfig(r.Cfg)
-	if err != nil {
-		return err
 	}
 	obj, err := k8s.DecodeAndUnstructure(r.Source.Value)
 	if err != nil {
 		return err
 	}
+	zap.L().Info(fmt.Sprintf("resource gvr:%s, name %s enable scale to zero and time meet since last event",
+		r.GVR, obj.GetName()))
+	k8sCli, err := kubernetes.NewForConfig(r.Cfg)
+	if err != nil {
+		return err
+	}
+
 	err = ScaleObjTo(ctx, k8sCli, obj, 0)
 	if err != nil {
 		return errors.Errorf("failed to scaleToZero. err: %+v\n", err)

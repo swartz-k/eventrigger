@@ -22,6 +22,7 @@ func main() {
 			return operator.Run()
 		},
 	}
+	rootCmd.Flags().IntVar(&opt.Port, "port", 8081, "Http Server Port")
 	rootCmd.Flags().UintVar(&opt.CloudEventsPort, "cloud-events-port", 7787, "Cloud Events Port")
 	rootCmd.Flags().IntVar(&opt.MetricsPort, "metrics-port", 7788, "Operator Metrics Port")
 	rootCmd.Flags().IntVar(&opt.HealthPort, "health-port", 7789, "Operator Health Port")

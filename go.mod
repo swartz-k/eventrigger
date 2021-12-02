@@ -11,6 +11,7 @@ require (
 	github.com/eclipse/paho.mqtt.golang v1.3.5
 	github.com/gin-gonic/gin v1.7.7
 	github.com/go-redis/redis/v8 v8.11.4
+	github.com/google/go-cmp v0.5.6
 	github.com/google/uuid v1.1.2
 	github.com/mitchellh/mapstructure v1.4.1
 	github.com/onsi/ginkgo v1.16.4

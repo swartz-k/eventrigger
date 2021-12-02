@@ -1,7 +1,6 @@
 package monitor
 
 import (
-	"bufio"
 	"context"
 	"eventrigger.com/operator/common/consts"
 	"eventrigger.com/operator/common/event"
@@ -13,14 +12,16 @@ import (
 	"github.com/mitchellh/mapstructure"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
+	v13 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	v12 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/cache"
+	"net/http"
+	"net/http/httputil"
 	"strings"
+	"time"
 )
 
 type K8sHttpOptions struct {
@@ -33,6 +34,7 @@ type K8sHttpRunner struct {
 	Ctx  context.Context
 	Opts *K8sHttpOptions
 	// endpoint
+	Operation         v1.KubernetesResourceOperation
 	MatchLabels       map[string]string
 	EndpointNamespace string
 	EndpointUrl       string
@@ -64,12 +66,21 @@ func NewK8sHttpMonitor(meta map[string]string, trigger *v1.Trigger) (*K8sHttpRun
 		trigger.Template.K8s.Source.Resource == nil {
 		return nil, errors.New("http monitor only support k8s source and cannot be null")
 	}
+	op := trigger.Template.K8s.Operation
+	switch op {
+	case v1.Scale:
+		break
+	case v1.Create:
+		break
+	default:
+		return nil, errors.New(fmt.Sprintf("not support operation %s", op))
+	}
 	opts, err := parseK8sHttpMeta(meta)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse http meta")
 	}
-
-	obj, err := k8s2.DecodeAndUnstructure(trigger.Template.K8s.Source.Resource.Value)
+	resource := trigger.Template.K8s.Source.Resource
+	obj, err := k8s2.DecodeAndUnstructure(resource.Value)
 	if err != nil {
 		return nil, err
 	}
@@ -78,17 +89,30 @@ func NewK8sHttpMonitor(meta map[string]string, trigger *v1.Trigger) (*K8sHttpRun
 		Opts:              opts,
 		EndpointNamespace: obj.GetNamespace(),
 		Retry:             10,
-		MatchLabels:       obj.GetLabels(),
+		Operation:         op,
 	}
 
 	switch obj.GetKind() {
-	case "pod":
+	case consts.PodKind:
+		m.MatchLabels = obj.GetLabels()
 		m.EndpointUrl = fmt.Sprintf("%s.%s", obj.GetName(), obj.GetNamespace())
-		m.EndpointType = "pod"
-	case "statefulset":
-		m.EndpointType = "statefulset"
-	case "deployment":
-		m.EndpointType = "deployment"
+		m.EndpointType = consts.PodKind
+	case consts.StatefulSetKind:
+		var sts v13.StatefulSet
+		err = runtime.DefaultUnstructuredConverter.FromUnstructured(obj.UnstructuredContent(), &sts)
+		if err != nil {
+			return nil, errors.Wrapf(err, "FromUnstructured to statefulset")
+		}
+		m.MatchLabels = sts.Spec.Selector.MatchLabels
+		m.EndpointType = consts.StatefulSetKind
+	case consts.DeploymentKind:
+		var dm v13.Deployment
+		err = runtime.DefaultUnstructuredConverter.FromUnstructured(obj.UnstructuredContent(), &dm)
+		if err != nil {
+			return nil, errors.Wrapf(err, "FromUnstructured to statefulset")
+		}
+		m.MatchLabels = dm.Spec.Selector.MatchLabels
+		m.EndpointType = consts.DeploymentKind
 	default:
 		return nil, errors.New(fmt.Sprintf("not support k8s kind %s", obj.GetKind()))
 	}
@@ -96,7 +120,7 @@ func NewK8sHttpMonitor(meta map[string]string, trigger *v1.Trigger) (*K8sHttpRun
 	return m, nil
 }
 
-func (m *K8sHttpRunner) Handler(c *gin.Context) {
+func (m *K8sHttpRunner) Handler(c *gin.Context) (code int, resp interface{}, err error) {
 	// send event to actor
 	var data string
 	rawData, err := c.GetRawData()
@@ -125,42 +149,75 @@ func (m *K8sHttpRunner) Handler(c *gin.Context) {
 		c.Error(err)
 		return
 	}
-
 	labelSelector := labels.Set(m.MatchLabels).AsSelector()
-
-	informer := cache.NewSharedIndexInformer(
-		&cache.ListWatch{
-			ListFunc: func(options v12.ListOptions) (runtime.Object, error) {
-				options.LabelSelector = labelSelector.String()
-				return cli.CoreV1().Pods(m.EndpointNamespace).List(m.Ctx, options)
-			},
-			WatchFunc: func(options v12.ListOptions) (watch.Interface, error) {
-				options.LabelSelector = labelSelector.String()
-				return cli.CoreV1().Pods(m.EndpointNamespace).Watch(m.Ctx, options)
-			},
-		},
-		&corev1.Pod{},
-		1,
-		cache.Indexers{},
-	)
-	informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
-			pod, ok := obj.(*corev1.Pod)
+	zap.L().Info("new shared index informer")
+	watchOptions := v12.ListOptions{LabelSelector: labelSelector.String()}
+	watcher, err := cli.CoreV1().Pods(m.EndpointNamespace).Watch(m.Ctx, watchOptions)
+	if err != nil {
+		err = errors.Wrap(err, "k8s watcher pod")
+		zap.L().Info(err.Error())
+		c.Error(err)
+	}
+	zap.L().Info(fmt.Sprintf("watch pod of ns %d with label selector %s",
+		m.EndpointNamespace, labelSelector.String()))
+	timeoutTicker := time.NewTicker(5 * time.Minute)
+	var successOrTimeout bool
+	for !successOrTimeout {
+		select {
+		case event := <- watcher.ResultChan():
+			p, ok := event.Object.(*corev1.Pod)
 			if !ok {
-				zap.L().Error("failed get pod within k8s http")
-				return
+				break
 			}
-			ioReader, err := cli.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, &corev1.PodLogOptions{}).Stream(m.Ctx)
-			if err != nil {
-				zap.L().Error(fmt.Sprintf("get pods %s-%s log failed err %+v", pod.Namespace, pod.Name, err))
-				return
+			if len(p.Status.ContainerStatuses) == 0 {
+				break
 			}
-			defer ioReader.Close()
-			sc := bufio.NewScanner(ioReader)
-			c.Writer.Write(sc.Bytes())
-		},
-	})
+			ready := true
+			for _, sta := range p.Status.ContainerStatuses {
+				if !sta.Ready {
+					ready = false
+				}
+			}
+			if !ready {
+				break
+			}
+			zap.L().Info(fmt.Sprintf("pod %s/%s is ready with container status %+v", p.Name, p.Namespace, p.Status.ContainerStatuses))
+			var port int32
+			port = 80
+			for _, c := range p.Spec.Containers {
+				for _, p := range c.Ports {
+					if port == 0 {
+						port = p.HostPort
+					}
+					if p.Name == "http" {
+						port = p.HostPort
+					}
+				}
+			}
+			host := fmt.Sprintf("%s.%s:%d", p.Name, p.Namespace, port)
+			// mock for test
+			//host = "www.baidu.com"
+			director := func(req *http.Request) {
+				req.URL.Scheme = "http"
+				req.URL.Host = host
+				req.URL.Path = c.Request.URL.Path
+			}
+			zap.L().Info(fmt.Sprintf("redirect req to host %s, path %s", host, c.Request.URL.Path))
 
+			proxy := &httputil.ReverseProxy{
+				Director: director,
+			}
+			proxy.ErrorLog = zap.NewStdLog(zap.L())
+			proxy.ServeHTTP(c.Writer, c.Request)
+			successOrTimeout = true
+		case <-timeoutTicker.C:
+			msg := "timeout"
+			c.Writer.Write([]byte(msg))
+			successOrTimeout = true
+		}
+	}
+	watcher.Stop()
+	return 0, "success", nil
 }
 
 func (m *K8sHttpRunner) Run(ctx context.Context, eventChannel chan event.Event, stopCh <-chan struct{}) error {
@@ -168,10 +225,12 @@ func (m *K8sHttpRunner) Run(ctx context.Context, eventChannel chan event.Event, 
 	m.EventChannel = eventChannel
 	m.StopCh = stopCh
 	for _, host := range m.Opts.Hosts {
+		zap.L().Info(fmt.Sprintf("k8s http monitor add host: %s for %s", host, m.EndpointUrl))
 		server.GlobalHttpServer.AddOrReplaceHostMap(host, m.Handler)
 	}
 	for k, v := range m.Opts.Headers {
 		header := fmt.Sprintf("%s=%s", k, v)
+		zap.L().Info(fmt.Sprintf("k8s http monitor add header: %s for %s", header, m.EndpointUrl))
 		server.GlobalHttpServer.AddOrReplaceHostMap(header, m.Handler)
 	}
 	return nil
