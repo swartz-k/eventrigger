@@ -2,6 +2,8 @@ package monitor
 
 import (
 	"context"
+	"encoding/base64"
+	json2 "encoding/json"
 	"eventrigger.com/operator/common/consts"
 	"eventrigger.com/operator/common/event"
 	k8s2 "eventrigger.com/operator/common/k8s"
@@ -132,37 +134,83 @@ func (m *K8sHttpRunner) Handler(c *gin.Context) (code int, resp interface{}, err
 	requestUUID := c.Request.Header.Get(consts.UUIDLabelHeader)
 	sendEvent := event.NewEvent("", string(v1.HttpMonitorType), "", "", data, requestUUID)
 	m.EventChannel <- sendEvent
-	// wait for response of pod
 
+	eventData, err := json2.Marshal(sendEvent)
+	if err != nil {
+		return 0, nil, err
+	}
+	b64Event := base64.StdEncoding.EncodeToString(eventData)
+	endpoint, err := m.GetEndpointUrl()
+	if endpoint != "" && err == nil {
+		endpoint = "127.0.0.1:8000"
+		director := func(req *http.Request) {
+			req.URL.Scheme = "http"
+			req.URL.Host = endpoint
+			req.URL.Path = c.Request.URL.Path
+			// auto add event content
+			// todo: maybe set header、query or post form
+			req.Header.Add(consts.EVENTB64Header, b64Event)
+		}
+
+		proxy := &httputil.ReverseProxy{
+			Director: director,
+		}
+		proxy.ModifyResponse = func(response *http.Response) error {
+			fmt.Printf("response %s \n", response.Header)
+			return nil
+		}
+		proxy.ErrorHandler = func (rw http.ResponseWriter, req *http.Request, err error) {
+			zap.L().Info(fmt.Sprintf("http: proxy error: %v", err))
+			rw.WriteHeader(http.StatusBadGateway)
+			resp := server.HttpResponse{Code: 500, Data: err.Error()}
+			raw, mErr := json2.Marshal(resp)
+			if mErr != nil {
+				rw.Write([]byte(errors.Wrap(err, mErr.Error()).Error()))
+			} else {
+				rw.Write(raw)
+			}
+			return
+		}
+		zap.L().Info(fmt.Sprintf("redirect req to host %s, path %s, headers %s", endpoint, c.Request.URL.Path, c.Request.Header))
+		// todo: return serve http response to response
+		proxy.ServeHTTP(c.Writer, c.Request)
+
+		return
+	} else {
+		msg := fmt.Sprintf("failed to find endpoint with err %s", err)
+		zap.L().Info(msg)
+		return 500, msg, err
+	}
+
+	return 0, "success", nil
+}
+
+func (m *K8sHttpRunner) GetEndpointUrl() (string, error) {
 	cfg, err := k8s2.GetKubeConfig()
 	if err != nil {
-		err = errors.Wrap(err, "new k8s config")
-		zap.L().Info(err.Error())
-		c.Error(err)
-		return
+		err = errors.Wrap(err, "get kube config for get endpoint url")
+		return "", err
 	}
 
 	cli, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
 		err = errors.Wrap(err, "new k8s cli with config")
-		zap.L().Info(err.Error())
-		c.Error(err)
-		return
+		return "", err
 	}
+
 	labelSelector := labels.Set(m.MatchLabels).AsSelector()
-	zap.L().Info("new shared index informer")
 	watchOptions := v12.ListOptions{LabelSelector: labelSelector.String()}
-	watcher, err := cli.CoreV1().Pods(m.EndpointNamespace).Watch(m.Ctx, watchOptions)
-	if err != nil {
-		err = errors.Wrap(err, "k8s watcher pod")
-		zap.L().Info(err.Error())
-		c.Error(err)
-	}
-	zap.L().Info(fmt.Sprintf("watch pod of ns %d with label selector %s",
-		m.EndpointNamespace, labelSelector.String()))
+
 	timeoutTicker := time.NewTicker(5 * time.Minute)
-	var successOrTimeout bool
-	for !successOrTimeout {
+
+	switch m.EndpointType {
+	case consts.PodKind, consts.StatefulSetKind, consts.DeploymentKind:
+		watcher, err := cli.CoreV1().Pods(m.EndpointNamespace).Watch(m.Ctx, watchOptions)
+		if err != nil {
+			err = errors.Wrap(err, "k8s watcher pod")
+			return "", err
+		}
+		defer watcher.Stop()
 		select {
 		case event := <- watcher.ResultChan():
 			p, ok := event.Object.(*corev1.Pod)
@@ -178,46 +226,28 @@ func (m *K8sHttpRunner) Handler(c *gin.Context) (code int, resp interface{}, err
 					ready = false
 				}
 			}
-			if !ready {
-				break
-			}
-			zap.L().Info(fmt.Sprintf("pod %s/%s is ready with container status %+v", p.Name, p.Namespace, p.Status.ContainerStatuses))
-			var port int32
-			port = 80
-			for _, c := range p.Spec.Containers {
-				for _, p := range c.Ports {
-					if port == 0 {
-						port = p.HostPort
-					}
-					if p.Name == "http" {
-						port = p.HostPort
+			if ready {
+				var port int32
+				port = 80
+				for _, c := range p.Spec.Containers {
+					for _, p := range c.Ports {
+						if port != 0 {
+							port = p.HostPort
+						}
+						if p.Name == "http" {
+							port = p.HostPort
+						}
 					}
 				}
+				return fmt.Sprintf("%s.%s:%d", p.Name, p.Namespace, port), nil
 			}
-			host := fmt.Sprintf("%s.%s:%d", p.Name, p.Namespace, port)
-			// mock for test
-			//host = "www.baidu.com"
-			director := func(req *http.Request) {
-				req.URL.Scheme = "http"
-				req.URL.Host = host
-				req.URL.Path = c.Request.URL.Path
-			}
-			zap.L().Info(fmt.Sprintf("redirect req to host %s, path %s", host, c.Request.URL.Path))
-
-			proxy := &httputil.ReverseProxy{
-				Director: director,
-			}
-			proxy.ErrorLog = zap.NewStdLog(zap.L())
-			proxy.ServeHTTP(c.Writer, c.Request)
-			successOrTimeout = true
-		case <-timeoutTicker.C:
-			msg := "timeout"
-			c.Writer.Write([]byte(msg))
-			successOrTimeout = true
+		case <- timeoutTicker.C:
+			return "", errors.New(fmt.Sprintf("waiting pod %s, %s select %s to be ready timeout", m.EndpointType, m.EndpointNamespace, m.MatchLabels))
 		}
+	default:
+		return "", errors.New(fmt.Sprintf("endpoint type %s not support", m.EndpointType))
 	}
-	watcher.Stop()
-	return 0, "success", nil
+	return "", errors.New("cannot find right endpoint")
 }
 
 func (m *K8sHttpRunner) Run(ctx context.Context, eventChannel chan event.Event, stopCh <-chan struct{}) error {

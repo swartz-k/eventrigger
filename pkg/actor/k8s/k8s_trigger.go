@@ -87,17 +87,7 @@ func (r *k8sActor) Exec(ctx context.Context, event commonEvent.Event) error {
 
 	switch r.OP {
 	case v1.Create:
-		labels := r.Obj.GetLabels()
-		if labels == nil {
-			labels = make(map[string]string)
-		}
-		SetEventLabel(event, labels)
-		r.Obj.SetLabels(labels)
-		_, err = dynamicClient.Resource(r.GVR).Namespace(namespace).Create(ctx, r.Obj, metav1.CreateOptions{})
-		if err != nil {
-			return errors.Errorf("failed to create object. err: %+v\n", err)
-		}
-		return nil
+		return r.CreateObj(ctx, event, dynamicClient)
 	case v1.Delete:
 		_, err = dynamicClient.Resource(r.GVR).Namespace(namespace).Get(ctx, r.Obj.GetName(), metav1.GetOptions{})
 
@@ -179,14 +169,16 @@ func (r *k8sActor) String() string {
 	return fmt.Sprintf("%s-%s", r.GVR.String(), r.OP)
 }
 
-func SetEventLabel(event commonEvent.Event, labels map[string]string) {
+func GetEventDict(event commonEvent.Event) (dict map[string]string) {
+	dict = map[string]string{}
 	if event.UUID != "" {
-		labels[consts.UUIDLabel] = event.UUID
+		dict[consts.UUIDLabel] = event.UUID
 	}
-	labels[consts.ActionTimestamp] = strconv.Itoa(int(time.Now().UnixNano() / int64(time.Millisecond)))
-	labels[consts.EventNamespace] = event.Namespace
-	labels[consts.EventType] = event.Type
-	labels[consts.EventSource] = event.Source
-	labels[consts.EventData] = event.Data
-	labels[consts.EventVersion] = event.Version
+	dict[consts.ActionTimestamp] = strconv.Itoa(int(time.Now().UnixNano() / int64(time.Millisecond)))
+	dict[consts.EventNamespace] = event.Namespace
+	dict[consts.EventType] = event.Type
+	dict[consts.EventSource] = event.Source
+	dict[consts.EventData] = event.Data
+	dict[consts.EventVersion] = event.Version
+	return dict
 }

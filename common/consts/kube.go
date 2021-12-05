@@ -7,4 +7,6 @@ const (
 
 	PodApiVersion = "v1"
 	PodKind = "Pod"
+
+	JobKind = "Job"
 )

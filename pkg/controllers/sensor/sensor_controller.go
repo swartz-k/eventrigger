@@ -85,7 +85,7 @@ func (r *SensorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 // reconcile does the real logic
 func (r *SensorReconciler) reconcile(ctx context.Context, sensor *corev1.Sensor) error {
-
+	// todo: in sensor controller, auto add hosts if inject ingress enable
 	log := r.logger.With("namespace", sensor.Namespace).With("sensor", sensor.Name)
 	if sensor.DeletionTimestamp.IsZero() {
 		log.Info("adding sensor")
