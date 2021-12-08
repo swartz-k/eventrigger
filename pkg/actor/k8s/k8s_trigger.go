@@ -44,13 +44,14 @@ func ScaleObjTo(ctx context.Context, cli *kubernetes.Clientset, obj *unstructure
 		}
 		return nil
 	case consts.DeploymentKind:
-		s, err := cli.AppsV1().Deployments(namespace).GetScale(ctx, name, metav1.GetOptions{})
+		d, err := cli.AppsV1().Deployments(namespace).GetScale(ctx, name, metav1.GetOptions{})
 		if err != nil {
 			return errors.Wrapf(err, "get scale for deployment %s-%s", namespace, name)
 		}
-		if replicas == 0 || s.Spec.Replicas < replicas {
-			s.Spec.Replicas = replicas
-			_, err = cli.AppsV1().Deployments(namespace).UpdateScale(ctx, name, s, metav1.UpdateOptions{})
+		if replicas == 0 || d.Spec.Replicas < replicas {
+			sd := *d
+			sd.Spec.Replicas = replicas
+			_, err = cli.AppsV1().Deployments(namespace).UpdateScale(ctx, name, &sd, metav1.UpdateOptions{})
 			if err != nil {
 				return errors.Wrapf(err, "scale deployment %s-%s to %d", namespace, name, replicas)
 			}

@@ -142,7 +142,6 @@ func (m *K8sHttpRunner) Handler(c *gin.Context) (code int, resp interface{}, err
 	b64Event := base64.StdEncoding.EncodeToString(eventData)
 	endpoint, err := m.GetEndpointUrl()
 	if endpoint != "" && err == nil {
-		endpoint = "127.0.0.1:8000"
 		director := func(req *http.Request) {
 			req.URL.Scheme = "http"
 			req.URL.Host = endpoint
@@ -207,42 +206,44 @@ func (m *K8sHttpRunner) GetEndpointUrl() (string, error) {
 	case consts.PodKind, consts.StatefulSetKind, consts.DeploymentKind:
 		watcher, err := cli.CoreV1().Pods(m.EndpointNamespace).Watch(m.Ctx, watchOptions)
 		if err != nil {
-			err = errors.Wrap(err, "k8s watcher pod")
+			err = errors.Wrapf(err, "k8s watcher pod with labels %s", labelSelector.String())
 			return "", err
 		}
 		defer watcher.Stop()
-		select {
-		case event := <- watcher.ResultChan():
-			p, ok := event.Object.(*corev1.Pod)
-			if !ok {
-				break
-			}
-			if len(p.Status.ContainerStatuses) == 0 {
-				break
-			}
-			ready := true
-			for _, sta := range p.Status.ContainerStatuses {
-				if !sta.Ready {
-					ready = false
+		for {
+			select {
+			case event := <-watcher.ResultChan():
+				p, ok := event.Object.(*corev1.Pod)
+				if !ok {
+					break
 				}
-			}
-			if ready {
-				var port int32
-				port = 80
-				for _, c := range p.Spec.Containers {
-					for _, p := range c.Ports {
-						if port != 0 {
-							port = p.HostPort
-						}
-						if p.Name == "http" {
-							port = p.HostPort
-						}
+				if len(p.Status.ContainerStatuses) == 0 {
+					break
+				}
+				ready := true
+				for _, sta := range p.Status.ContainerStatuses {
+					if !sta.Ready {
+						ready = false
 					}
 				}
-				return fmt.Sprintf("%s.%s:%d", p.Name, p.Namespace, port), nil
+				if ready {
+					var port int32
+					port = 80
+					for _, c := range p.Spec.Containers {
+						for _, p := range c.Ports {
+							if port != 0 {
+								port = p.HostPort
+							}
+							if p.Name == "http" {
+								port = p.HostPort
+							}
+						}
+					}
+					return fmt.Sprintf("%s.%s:%d", p.Name, p.Namespace, port), nil
+				}
+			case <-timeoutTicker.C:
+				return "", errors.New(fmt.Sprintf("waiting pod %s, %s select %s to be ready timeout", m.EndpointType, m.EndpointNamespace, m.MatchLabels))
 			}
-		case <- timeoutTicker.C:
-			return "", errors.New(fmt.Sprintf("waiting pod %s, %s select %s to be ready timeout", m.EndpointType, m.EndpointNamespace, m.MatchLabels))
 		}
 	default:
 		return "", errors.New(fmt.Sprintf("endpoint type %s not support", m.EndpointType))

@@ -105,6 +105,7 @@ func NewRunner(sensor *v1.Sensor) (r RunnerInterface, err error) {
 
 func (r *runner) tickerCheck() {
 	checkDuration := r.Actor.GetTickerTime()
+	zap.L().Info(fmt.Sprintf("runner with ticker check %d second", checkDuration))
 	if checkDuration == 0 {
 		return
 	}
