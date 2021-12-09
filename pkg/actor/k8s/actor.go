@@ -1,7 +1,6 @@
 package k8s
 
 import (
-	"eventrigger.com/operator/common/consts"
 	k8s2 "eventrigger.com/operator/common/k8s"
 	"eventrigger.com/operator/pkg/api/core/common"
 	v1 "eventrigger.com/operator/pkg/api/core/v1"
@@ -9,8 +8,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
-	"strconv"
-	"time"
 )
 
 type k8sActor struct {
@@ -19,9 +16,6 @@ type k8sActor struct {
 	GVR    schema.GroupVersionResource
 	Source *common.Resource
 	Cfg    *rest.Config
-	// ScaleToZeroTime
-	EnableScaleZero bool
-	ScaleToZeroTime time.Duration
 }
 
 func NewK8SActor(t *v1.StandardK8STrigger) (actor *k8sActor, err error) {
@@ -48,16 +42,6 @@ func NewK8SActor(t *v1.StandardK8STrigger) (actor *k8sActor, err error) {
 		Source: t.Source.Resource,
 		Cfg:    cfg,
 	}
-	labels := obj.GetLabels()
-	if v, ok := labels[consts.ScaleToZeroEnable]; ok && v == "true" {
-		actor.EnableScaleZero = true
-	}
-	if idleSecond, ok := labels[consts.ScaleToZeroIdleTime]; ok {
-		second, err := strconv.Atoi(idleSecond)
-		if err != nil {
-			second = 60
-		}
-		actor.ScaleToZeroTime = time.Second * time.Duration(second)
-	}
+
 	return actor, nil
 }

@@ -32,7 +32,7 @@ type K8sHttpOptions struct {
 	Suffix  string
 }
 
-type K8sHttpRunner struct {
+type K8sHttpMonitor struct {
 	Ctx  context.Context
 	Opts *K8sHttpOptions
 	// endpoint
@@ -44,7 +44,6 @@ type K8sHttpRunner struct {
 	//
 	EventChannel chan event.Event
 	Retry        int
-	StopCh       <-chan struct{}
 }
 
 func parseK8sHttpMeta(meta map[string]string) (opts *K8sHttpOptions, err error) {
@@ -63,7 +62,7 @@ func parseK8sHttpMeta(meta map[string]string) (opts *K8sHttpOptions, err error) 
 	return opts, nil
 }
 
-func NewK8sHttpMonitor(meta map[string]string, trigger *v1.Trigger) (*K8sHttpRunner, error) {
+func NewK8sHttpMonitor(meta map[string]string, trigger *v1.Trigger) (*K8sHttpMonitor, error) {
 	if trigger == nil || trigger.Template == nil || trigger.Template.K8s == nil || trigger.Template.K8s.Source == nil ||
 		trigger.Template.K8s.Source.Resource == nil {
 		return nil, errors.New("http monitor only support k8s source and cannot be null")
@@ -87,7 +86,7 @@ func NewK8sHttpMonitor(meta map[string]string, trigger *v1.Trigger) (*K8sHttpRun
 		return nil, err
 	}
 
-	m := &K8sHttpRunner{
+	m := &K8sHttpMonitor{
 		Opts:              opts,
 		EndpointNamespace: obj.GetNamespace(),
 		Retry:             10,
@@ -122,7 +121,7 @@ func NewK8sHttpMonitor(meta map[string]string, trigger *v1.Trigger) (*K8sHttpRun
 	return m, nil
 }
 
-func (m *K8sHttpRunner) Handler(c *gin.Context) (code int, resp interface{}, err error) {
+func (m *K8sHttpMonitor) Handler(c *gin.Context) (code int, resp interface{}, err error) {
 	// send event to actor
 	var data string
 	rawData, err := c.GetRawData()
@@ -184,7 +183,7 @@ func (m *K8sHttpRunner) Handler(c *gin.Context) (code int, resp interface{}, err
 	return 0, "success", nil
 }
 
-func (m *K8sHttpRunner) GetEndpointUrl() (string, error) {
+func (m *K8sHttpMonitor) GetEndpointUrl() (string, error) {
 	cfg, err := k8s2.GetKubeConfig()
 	if err != nil {
 		err = errors.Wrap(err, "get kube config for get endpoint url")
@@ -228,18 +227,20 @@ func (m *K8sHttpRunner) GetEndpointUrl() (string, error) {
 				}
 				if ready {
 					var port int32
-					port = 80
 					for _, c := range p.Spec.Containers {
-						for _, p := range c.Ports {
-							if port != 0 {
-								port = p.HostPort
+						for _, pp := range c.Ports {
+							if port == 0 {
+								port = pp.ContainerPort
 							}
 							if p.Name == "http" {
-								port = p.HostPort
+								port = pp.ContainerPort
 							}
 						}
 					}
-					return fmt.Sprintf("%s.%s:%d", p.Name, p.Namespace, port), nil
+					if p.Status.PodIP == "" {
+						zap.L().Error(fmt.Sprintf("faile to get podIP for pod %s/%s", p.Name, p.Namespace))
+					}
+					return fmt.Sprintf("%s:%d", p.Status.PodIP, port), nil
 				}
 			case <-timeoutTicker.C:
 				return "", errors.New(fmt.Sprintf("waiting pod %s, %s select %s to be ready timeout", m.EndpointType, m.EndpointNamespace, m.MatchLabels))
@@ -251,18 +252,31 @@ func (m *K8sHttpRunner) GetEndpointUrl() (string, error) {
 	return "", errors.New("cannot find right endpoint")
 }
 
-func (m *K8sHttpRunner) Run(ctx context.Context, eventChannel chan event.Event, stopCh <-chan struct{}) error {
+func (m *K8sHttpMonitor) Run(ctx context.Context, eventChannel chan event.Event) error {
 	m.Ctx = ctx
 	m.EventChannel = eventChannel
-	m.StopCh = stopCh
 	for _, host := range m.Opts.Hosts {
-		zap.L().Info(fmt.Sprintf("k8s http monitor add host: %s for %s", host, m.EndpointUrl))
+		zap.L().Info(fmt.Sprintf("k8s http monitor add host: %s for %s", host, m.EndpointType))
 		server.GlobalHttpServer.AddOrReplaceHostMap(host, m.Handler)
 	}
 	for k, v := range m.Opts.Headers {
 		header := fmt.Sprintf("%s=%s", k, v)
-		zap.L().Info(fmt.Sprintf("k8s http monitor add header: %s for %s", header, m.EndpointUrl))
+		zap.L().Info(fmt.Sprintf("k8s http monitor add header: %s for %s", header, m.EndpointType))
 		server.GlobalHttpServer.AddOrReplaceHostMap(header, m.Handler)
+	}
+
+	zap.L().Debug(fmt.Sprintf("k8s http monitor with hosts: %s exist", m.Opts.Hosts))
+	return nil
+}
+
+
+func (m *K8sHttpMonitor) Stop() error {
+	for _, host := range m.Opts.Hosts {
+		server.GlobalHttpServer.DeleteHostMap(host)
+	}
+	for k, v := range m.Opts.Headers {
+		header := fmt.Sprintf("%s=%s", k, v)
+		server.GlobalHttpServer.DeleteHeaderMap(header)
 	}
 	return nil
 }

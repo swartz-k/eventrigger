@@ -19,7 +19,6 @@ package manager
 import (
 	"context"
 	"eventrigger.com/operator/common/consts"
-	"eventrigger.com/operator/common/event"
 	"eventrigger.com/operator/common/server"
 	"eventrigger.com/operator/common/sync/errsgroup"
 	"eventrigger.com/operator/pkg/generated/clientset/versioned"
@@ -87,14 +86,13 @@ type Operator struct {
 	Options OperatorOptions
 
 	// map
-	RunnerChannelMap map[string]*chan struct{}
+	RunnerChannelMap map[string]RunnerInterface
 
 	// controller
 	ErrorGroup     errsgroup.Group
 	WaitGroup      sync.WaitGroup
 	Controller     *manager.Manager
 	MonitorChannel chan eventriggerv1.Monitor
-	EventChannel   chan event.Event
 
 	InformerFactory externalversions.SharedInformerFactory
 	Workqueue       workqueue.RateLimitingInterface
@@ -124,8 +122,7 @@ func NewOperator(options *OperatorOptions) (op *Operator, err error) {
 	op = &Operator{
 		CTX:              context.Background(),
 		Options:          *options,
-		RunnerChannelMap: make(map[string]*chan struct{}),
-		EventChannel:     make(chan event.Event, 100),
+		RunnerChannelMap: make(map[string]RunnerInterface),
 		MonitorChannel:   make(chan eventriggerv1.Monitor, 100),
 		Workqueue:        workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), consts.SensorName),
 	}
@@ -145,7 +142,6 @@ func NewOperator(options *OperatorOptions) (op *Operator, err error) {
 	if err = (&sensor.SensorReconciler{
 		Client:      mgr.GetClient(),
 		Scheme:      mgr.GetScheme(),
-		MonitorChan: op.MonitorChannel,
 	}).SetupWithManager(mgr); err != nil {
 		return nil, errors.Wrap(err, "unable to create controller Sensor")
 	}
@@ -192,7 +188,7 @@ func NewOperator(options *OperatorOptions) (op *Operator, err error) {
 }
 
 func (op *Operator) AddSensorHandler(obj interface{}) {
-	zap.L().Info("receive obj")
+	zap.L().Debug("add sensor handler receive obj")
 	key, err := cache.MetaNamespaceKeyFunc(obj)
 	if err != nil {
 		utilruntime.HandleError(err)
@@ -206,17 +202,17 @@ func (op *Operator) AddSensorHandler(obj interface{}) {
 		zap.L().Error("decode k8s unstructured")
 		return
 	}
-	ch := make(chan struct{})
-	op.RunnerChannelMap[key] = &ch
+
+	r, err := NewRunner(object)
+	if err != nil {
+		err = errors.Wrap(err, "init runner")
+		zap.L().Error(err.Error())
+		return
+	}
+	op.RunnerChannelMap[key] = r
 	op.ErrorGroup.Go(func() error {
 		defer delete(op.RunnerChannelMap, key)
-		runner, err := NewRunner(object)
-		if err != nil {
-			err = errors.Wrap(err, "init runner")
-			zap.L().Error(err.Error())
-			return err
-		}
-		err = runner.Run(&ch)
+		err = r.Run()
 		if err != nil {
 			err = errors.Wrap(err, "run runner")
 			zap.L().Error(err.Error())
@@ -243,65 +239,26 @@ func (op *Operator) UpdateSensorHandler(oldObj, newObj interface{}) {
 		zap.L().Debug("old obj and new obj spec is same")
 		return
 	}
-
-	zap.L().Info(fmt.Sprintf("old and new object diff %s", cmp.Diff(oldObject, newObject)))
-	key, err := cache.MetaNamespaceKeyFunc(oldObj)
-	if err != nil {
-		utilruntime.HandleError(err)
-		return
-	}
-	zap.L().Info(fmt.Sprintf("update try delete obj %s res %+v", key, err))
-	var ch *chan struct{}
-
-	if ch, ok = op.RunnerChannelMap[key]; !ok {
-		return
-	}
-	*ch <- struct{}{}
-	delete(op.RunnerChannelMap, key)
-
-	key, err = cache.MetaNamespaceKeyFunc(newObj)
-	if err != nil {
-		utilruntime.HandleError(err)
-		return
-	}
-
-	zap.L().Info(fmt.Sprintf("update start new runner with key %s", key))
-
-	newCh := make(chan struct{})
-	op.RunnerChannelMap[key] = &newCh
-	op.ErrorGroup.Go(func() error {
-		defer delete(op.RunnerChannelMap, key)
-		runner, err := NewRunner(newObject)
-		if err != nil {
-			err = errors.Wrap(err, "init runner")
-			zap.L().Error(err.Error())
-			return err
-		}
-		err = runner.Run(&newCh)
-		if err != nil {
-			err = errors.Wrap(err, "run runner")
-			zap.L().Error(err.Error())
-			return err
-		}
-		zap.L().Info(fmt.Sprintf("runner with key %s done", key))
-		return nil
-	})
+	zap.L().Info(fmt.Sprintf("update handler update obj %s/%s ", newObject.Name, newObject.Namespace))
+	op.DeleteSensorHandler(oldObj)
+	op.AddSensorHandler(newObj)
 }
 
 func (op *Operator) DeleteSensorHandler(obj interface{}) {
+	zap.L().Debug("delete sensor handler receive obj")
 	key, err := cache.MetaNamespaceKeyFunc(obj)
 	if err != nil {
 		utilruntime.HandleError(err)
 		return
 	}
-	zap.L().Info(fmt.Sprintf("try delete obj %s res %s", key, err.Error()))
-	var ch *chan struct{}
-	var ok bool
-
-	if ch, ok = op.RunnerChannelMap[key]; !ok {
+	zap.L().Info(fmt.Sprintf("delete runner with key %s", key))
+	r, ok := op.RunnerChannelMap[key]
+	if ok {
+		r.Stop()
 		return
+	} else {
+		zap.L().Error(fmt.Sprintf("cannot get runner with key %s", key))
 	}
-	*ch <- struct{}{}
 	delete(op.RunnerChannelMap, key)
 }
 

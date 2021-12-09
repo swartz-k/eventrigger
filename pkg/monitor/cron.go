@@ -15,12 +15,12 @@ type CronOptions struct {
 	Cron string
 }
 
-type CronRunner struct {
+type CronMonitor struct {
 	Opts       CronOptions
 	Cron       *cron.Cron
 	Scheduler  cron.Schedule
 	CronMapper map[cron.EntryID]chan struct{}
-	StopCh     <-chan struct{}
+	StopCh     chan struct{}
 }
 
 func parseCronMeta(meta map[string]string) (*CronOptions, error) {
@@ -36,7 +36,7 @@ func parseCronMeta(meta map[string]string) (*CronOptions, error) {
 	return opts, nil
 }
 
-func NewCronMonitor(meta map[string]string) (*CronRunner, error) {
+func NewCronMonitor(meta map[string]string) (*CronMonitor, error) {
 	opts, err := parseCronMeta(meta)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse cron meta")
@@ -48,17 +48,18 @@ func NewCronMonitor(meta map[string]string) (*CronRunner, error) {
 		return nil, err
 	}
 	c := cron.New(cron.WithSeconds())
-	m := &CronRunner{
+	m := &CronMonitor{
 		Opts:       *opts,
 		Scheduler:  scheduler,
 		Cron:       c,
 		CronMapper: map[cron.EntryID]chan struct{}{},
+		StopCh: make(chan struct{}),
 	}
 
 	return m, nil
 }
 
-func (m *CronRunner) Run(ctx context.Context, eventChannel chan event.Event, stopCh <-chan struct{}) error {
+func (m *CronMonitor) Run(ctx context.Context, eventChannel chan event.Event) error {
 	fStopCh := make(chan struct{})
 	entryId, err := m.Cron.AddFunc(m.Opts.Cron, func() {
 		ev := event.Event{
@@ -81,12 +82,17 @@ func (m *CronRunner) Run(ctx context.Context, eventChannel chan event.Event, sto
 
 	go m.Cron.Run()
 	select {
-	case <-stopCh:
+	case <- m.StopCh:
 		for _, ch := range m.CronMapper {
 			ch <- struct{}{}
 		}
 		m.Cron.Stop()
 		fmt.Println("stop cron")
 	}
+	return nil
+}
+
+func (m *CronMonitor) Stop() error {
+	m.StopCh <- struct{}{}
 	return nil
 }

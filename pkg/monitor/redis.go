@@ -19,9 +19,9 @@ type RedisOptions struct {
 	Channel  string
 }
 
-type RedisRunner struct {
+type RedisMonitor struct {
 	Opts   *RedisOptions
-	StopCh <-chan struct{}
+	StopCh chan struct{}
 }
 
 func parseRedisMeta(meta map[string]string) (opts *RedisOptions, err error) {
@@ -45,20 +45,21 @@ func parseRedisMeta(meta map[string]string) (opts *RedisOptions, err error) {
 	return opts, nil
 }
 
-func NewRedisMonitor(meta map[string]string) (*RedisRunner, error) {
+func NewRedisMonitor(meta map[string]string) (*RedisMonitor, error) {
 	opts, err := parseRedisMeta(meta)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse redis meta")
 	}
 
-	m := &RedisRunner{
+	m := &RedisMonitor{
 		Opts: opts,
+		StopCh: make(chan struct{}),
 	}
 
 	return m, nil
 }
 
-func (m *RedisRunner) Run(ctx context.Context, eventChannel chan event.Event, stopCh <-chan struct{}) error {
+func (m *RedisMonitor) Run(ctx context.Context, eventChannel chan event.Event) error {
 
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     m.Opts.Addr,
@@ -82,11 +83,16 @@ func (m *RedisRunner) Run(ctx context.Context, eventChannel chan event.Event, st
 	}(pubSub)
 
 	select {
-	case <-stopCh:
+	case <-m.StopCh:
 		fmt.Println("stop kafka")
 		return nil
 	default:
 		waitGroup.Wait()
 	}
+	return nil
+}
+
+func (m *RedisMonitor) Stop() error {
+	m.StopCh <- struct{}{}
 	return nil
 }

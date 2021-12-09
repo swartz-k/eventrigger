@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"eventrigger.com/operator/common/consts"
 	"eventrigger.com/operator/common/event"
 	"eventrigger.com/operator/pkg/actor"
 	"eventrigger.com/operator/pkg/actor/k8s"
@@ -10,17 +11,21 @@ import (
 	"fmt"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
+	"strconv"
 	"time"
 )
 
 type RunnerInterface interface {
-	Run(stopCh *chan struct{}) error
+	Run() error
+	Stop()
 }
 
 type runner struct {
 	CTX     context.Context
 	eventCh chan event.Event
 	stopCh  chan struct{}
+
+	Sensor *v1.Sensor
 	Monitor monitor.Interface
 	Actor   actor.Interface
 	// Config
@@ -97,23 +102,35 @@ func NewRunner(sensor *v1.Sensor) (r RunnerInterface, err error) {
 		CTX:     ctx,
 		Monitor: monitor,
 		Actor:   actor,
+		Sensor: sensor,
 		EventLast: time.Now(),
 		eventCh: make(chan event.Event),
+		stopCh: make(chan struct{}, 2),
 	}
 	return r, nil
 }
 
 func (r *runner) tickerCheck() {
-	checkDuration := r.Actor.GetTickerTime()
-	zap.L().Info(fmt.Sprintf("runner with ticker check %d second", checkDuration))
-	if checkDuration == 0 {
+	if r.Sensor == nil {
 		return
 	}
-	ticker := time.NewTicker(checkDuration)
+	var duration int
+	if enableIdle, ok := r.Sensor.Labels[consts.ScaleToZeroEnable]; !ok || enableIdle != "true" {
+		return
+	}
+	idleTimeStr, _ := r.Sensor.Labels[consts.ScaleToZeroIdleTime]
+	duration, _ = strconv.Atoi(idleTimeStr)
+	if duration != 0 {
+		duration = 60
+	}
+
+	zap.L().Info(fmt.Sprintf("runner with ticker check %d second",  duration))
+	scaleTime := time.Duration(duration) * time.Second
+	ticker := time.NewTicker(scaleTime)
 	for {
 		select {
 		case t := <-ticker.C:
-			err := r.Actor.Check(r.CTX, t, r.EventLast)
+			err := r.Actor.Check(r.CTX, scaleTime, r.EventLast)
 			if err != nil {
 				zap.L().Error(fmt.Sprintf("exec Check failed err %s at %d", err.Error(), t.UnixNano()))
 			}
@@ -121,8 +138,8 @@ func (r *runner) tickerCheck() {
 	}
 }
 
-func (r *runner) Run(stopCh *chan struct{}) error {
-	err := r.Monitor.Run(r.CTX, r.eventCh, *stopCh)
+func (r *runner) Run() error {
+	err := r.Monitor.Run(r.CTX, r.eventCh)
 	if err != nil {
 		return err
 	}
@@ -140,9 +157,24 @@ func (r *runner) Run(stopCh *chan struct{}) error {
 			} else {
 				zap.L().Info(fmt.Sprintf("successfully exec event %s-%s with actor", event.Type, event.Source))
 			}
-		case <- *stopCh:
+		case <- r.stopCh:
 			zap.L().Warn("receive stop channel, stop!!!")
 			return nil
 		}
+	}
+}
+
+func (r *runner) Stop() {
+	r.stopCh <- struct{}{}
+	if r.Monitor == nil {
+		zap.L().Warn("runner monitor is nil")
+		return
+	}
+
+	err := r.Monitor.Stop()
+
+	if err != nil {
+		err = errors.Wrapf(err, "stop monitor")
+		zap.L().Error(err.Error())
 	}
 }

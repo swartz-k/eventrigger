@@ -45,7 +45,7 @@ func TestRedisRunnerRun(t *testing.T) {
 	ctx := context.Background()
 	stopCh := make(chan struct{})
 	eventChannel := make(chan event.Event)
-	redisRunner := RedisRunner{Opts: redisOpts}
+	redisRunner := RedisMonitor{Opts: redisOpts}
 	go redisRunner.Run(ctx, eventChannel, stopCh)
 
 	for {

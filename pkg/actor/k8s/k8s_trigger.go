@@ -138,10 +138,9 @@ func (r *k8sActor) Exec(ctx context.Context, event commonEvent.Event) error {
 	}
 }
 
-func (r *k8sActor) Check(ctx context.Context, now, lastEvent time.Time) error {
-	zap.L().Info(fmt.Sprintf("check enableScaleZero %v, lastEvent %s and now %s", r.EnableScaleZero,
-		lastEvent.String(), now.String()))
-	if !r.EnableScaleZero || lastEvent.Add(r.ScaleToZeroTime).After(now) {
+func (r *k8sActor) Check(ctx context.Context, scaleTime time.Duration, lastEvent time.Time) error {
+	now := time.Now()
+	if lastEvent.Add(scaleTime).After(now) {
 		return nil
 	}
 	obj, err := k8s.DecodeAndUnstructure(r.Source.Value)
@@ -160,10 +159,6 @@ func (r *k8sActor) Check(ctx context.Context, now, lastEvent time.Time) error {
 		return errors.Errorf("failed to scaleToZero. err: %+v\n", err)
 	}
 	return nil
-}
-
-func (r *k8sActor) GetTickerTime() time.Duration {
-	return r.ScaleToZeroTime
 }
 
 func (r *k8sActor) String() string {

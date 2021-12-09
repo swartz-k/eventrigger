@@ -21,7 +21,7 @@ type MQTTOptions struct {
 	PingTimeoutSecond int32
 }
 
-type MQTTRunner struct {
+type MQTTMonitor struct {
 	Opts   MQTTOptions
 	StopCh <-chan struct{}
 }
@@ -42,19 +42,16 @@ func parseMQTTMeta(meta map[string]string) (*MQTTOptions, error) {
 	return opts, nil
 }
 
-func NewMQTTMonitor(meta map[string]string) (*MQTTRunner, error) {
+func NewMQTTMonitor(meta map[string]string) (*MQTTMonitor, error) {
 	opts, err := parseMQTTMeta(meta)
 	if err != nil {
 		return nil, errors.Wrapf(err, "parse mqtt meta")
 	}
-	m := &MQTTRunner{Opts: *opts}
+	m := &MQTTMonitor{Opts: *opts}
 	return m, nil
 }
 
-func (m *MQTTRunner) Run(ctx context.Context, eventChannel chan event.Event, stopCh <-chan struct{}) error {
-	// Subscribe to a topic
-	m.StopCh = stopCh
-
+func (m *MQTTMonitor) Run(ctx context.Context, eventChannel chan event.Event) error {
 	clientOpts := mqtt.NewClientOptions().AddBroker(m.Opts.URI).
 		SetUsername(m.Opts.Username).SetPassword(m.Opts.Password)
 
@@ -81,5 +78,9 @@ func (m *MQTTRunner) Run(ctx context.Context, eventChannel chan event.Event, sto
 	if token.Wait() && token.Error() != nil {
 		return errors.Wrapf(token.Error(), "failed to subscribe to the topic %s", m.Opts.Topic)
 	}
+	return nil
+}
+
+func (m *MQTTMonitor) Stop() error {
 	return nil
 }

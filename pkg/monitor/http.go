@@ -19,7 +19,7 @@ type HttpOptions struct {
 	Suffix  string
 }
 
-type HttpRunner struct {
+type HttpMonitor struct {
 	Opts *HttpOptions
 
 	EventChannel chan event.Event
@@ -42,19 +42,19 @@ func parseHttpMeta(meta map[string]string) (opts *HttpOptions, err error) {
 	return opts, nil
 }
 
-func NewHttpMonitor(meta map[string]string) (*HttpRunner, error) {
+func NewHttpMonitor(meta map[string]string) (*HttpMonitor, error) {
 	opts, err := parseHttpMeta(meta)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse http meta")
 	}
 
-	m := &HttpRunner{
+	m := &HttpMonitor{
 		Opts: opts,
 	}
 
 	return m, nil
 }
-func (m *HttpRunner) Handler(c *gin.Context) (int, interface{}, error) {
+func (m *HttpMonitor) Handler(c *gin.Context) (int, interface{}, error) {
 	// send event to actor
 	uuid := c.Request.Header.Get(consts.UUIDLabelHeader)
 	var data string
@@ -69,7 +69,7 @@ func (m *HttpRunner) Handler(c *gin.Context) (int, interface{}, error) {
 	return 0, sEvent, nil
 }
 
-func (m *HttpRunner) Run(ctx context.Context, eventChannel chan event.Event, stopCh <-chan struct{}) error {
+func (m *HttpMonitor) Run(ctx context.Context, eventChannel chan event.Event, stopCh <-chan struct{}) error {
 	m.EventChannel = eventChannel
 	m.StopCh = stopCh
 	for _, host := range m.Opts.Hosts {
