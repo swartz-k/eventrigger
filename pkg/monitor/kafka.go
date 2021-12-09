@@ -54,10 +54,10 @@ type KafkaOptions struct {
 	Password string
 }
 
-type KafkaRunner struct {
+type KafkaMonitor struct {
 	Opts   *KafkaOptions
 	Config *sarama.Config
-	StopCh <-chan struct{}
+	StopCh chan struct{}
 }
 
 func parseKafkaMeta(meta map[string]string) (opts *KafkaOptions, err error) {
@@ -136,7 +136,7 @@ func getKafkaConfig(opts *KafkaOptions) (config *sarama.Config, err error) {
 	return config, nil
 }
 
-func NewKafkaMonitor(meta map[string]string) (*KafkaRunner, error) {
+func NewKafkaMonitor(meta map[string]string) (*KafkaMonitor, error) {
 	opts, err := parseKafkaMeta(meta)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse kafka meta")
@@ -145,7 +145,7 @@ func NewKafkaMonitor(meta map[string]string) (*KafkaRunner, error) {
 	if err != nil {
 		return nil, err
 	}
-	m := &KafkaRunner{
+	m := &KafkaMonitor{
 		Opts:   opts,
 		Config: cfg,
 	}
@@ -153,7 +153,7 @@ func NewKafkaMonitor(meta map[string]string) (*KafkaRunner, error) {
 	return m, nil
 }
 
-func (m *KafkaRunner) getTopicOffsets(client sarama.Client, partitions []int32) (map[int32]int64, error) {
+func (m *KafkaMonitor) getTopicOffsets(client sarama.Client, partitions []int32) (map[int32]int64, error) {
 	version := int16(0)
 	if m.Config.Version.IsAtLeast(sarama.V0_10_1_0) {
 		version = 1
@@ -201,7 +201,7 @@ func (m *KafkaRunner) getTopicOffsets(client sarama.Client, partitions []int32) 
 	return offsets, nil
 }
 
-func (m *KafkaRunner) Run(ctx context.Context, eventChannel chan event.Event, stopCh <-chan struct{}) error {
+func (m *KafkaMonitor) Run(ctx context.Context, eventChannel chan event.Event) error {
 	consumer, err := sarama.NewConsumer(m.Opts.Servers, m.Config)
 	if err != nil {
 		return errors.Wrap(err, "new consumer")
@@ -237,19 +237,22 @@ func (m *KafkaRunner) Run(ctx context.Context, eventChannel chan event.Event, st
 				select {
 				case message := <-pc.Messages():
 					eventChannel <- event.NewSimpleEvent(string(v1.KafkaMonitorType), message.Topic, string(message.Value))
-				case <-stopCh:
-					return nil
 				}
 			}
 		}(pc)
 	}
 
 	select {
-	case <-stopCh:
+	case <- m.StopCh:
 		fmt.Println("stop kafka")
 		return nil
 	default:
 		waitGroup.Wait()
 	}
+	return nil
+}
+
+func (m *KafkaMonitor) Stop() error {
+	m.StopCh <- struct{}{}
 	return nil
 }

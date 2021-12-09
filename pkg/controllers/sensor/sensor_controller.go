@@ -42,7 +42,6 @@ type SensorReconciler struct {
 	Client      client.Client
 	Scheme      *runtime.Scheme
 	logger      *zap.SugaredLogger
-	MonitorChan chan corev1.Monitor
 }
 
 //+kubebuilder:rbac:groups=core.eventrigger.com,resources=sensors,verbs=get;list;watch;create;update;patch;delete

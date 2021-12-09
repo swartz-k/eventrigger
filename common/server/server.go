@@ -27,6 +27,7 @@ type HttpResponse struct {
 
 type Handler func(ctx *gin.Context) (int, interface{}, error)
 
+
 func NewHttpServer() (server *HttpServer) {
 	server = &HttpServer{
 		gin:                 gin.New(),
@@ -46,13 +47,14 @@ func (s *HttpServer) Init() {
 
 func (s *HttpServer) CommonDispatchHandler(c *gin.Context) {
 	if handler, ok := s.hostHandlerMapper[c.Request.Host]; ok {
-		zap.L().Info(fmt.Sprintf("match host: %s, handler %+v", c.Request.Host, handler))
+		zap.L().Info(fmt.Sprintf("match host: %s, handler %v", c.Request.Host, handler))
 		var data interface{}
 		code := 0
 		err := errors.New("")
 		code, data, err = handler(c)
 		if err != nil {
-			msg := HttpResponse{Msg: err.Error()}
+			msg := HttpResponse{Msg:
+				err.Error()}
 			c.JSON(code, msg)
 			return
 		}

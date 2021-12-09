@@ -6,5 +6,6 @@ import (
 )
 
 type Interface interface {
-	Run(ctx context.Context, eventChannel chan event.Event, stopCh <-chan struct{}) error
+	Run(ctx context.Context, eventChannel chan event.Event) error
+	Stop() error
 }
