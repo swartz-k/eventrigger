@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	json2 "encoding/json"
@@ -14,6 +15,7 @@ import (
 	"github.com/mitchellh/mapstructure"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
+	"io/ioutil"
 	v13 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	v12 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -130,6 +132,8 @@ func (m *K8sHttpMonitor) Handler(c *gin.Context) (code int, resp interface{}, er
 	} else {
 		data = string(rawData)
 	}
+	c.Request.Body = ioutil.NopCloser(bytes.NewBuffer(rawData))
+
 	requestUUID := c.Request.Header.Get(consts.UUIDLabelHeader)
 	sendEvent := event.NewEvent("", string(v1.HttpMonitorType), "", "", data, requestUUID)
 	m.EventChannel <- sendEvent
@@ -157,6 +161,7 @@ func (m *K8sHttpMonitor) Handler(c *gin.Context) (code int, resp interface{}, er
 			fmt.Printf("response %s \n", response.Header)
 			return nil
 		}
+
 		proxy.ErrorHandler = func (rw http.ResponseWriter, req *http.Request, err error) {
 			zap.L().Info(fmt.Sprintf("http: proxy error: %v", err))
 			rw.WriteHeader(http.StatusBadGateway)
