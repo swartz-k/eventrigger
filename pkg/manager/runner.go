@@ -12,6 +12,7 @@ import (
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -32,6 +33,7 @@ type runner struct {
 	IdleTime time.Duration
 
 	// Runtime
+	EventMutex sync.Mutex
 	EventCount int64
 	EventLast  time.Time
 }
@@ -106,36 +108,9 @@ func NewRunner(sensor *v1.Sensor) (r RunnerInterface, err error) {
 		EventLast: time.Now(),
 		eventCh: make(chan event.Event),
 		stopCh: make(chan struct{}, 2),
+		EventMutex: sync.Mutex{},
 	}
 	return r, nil
-}
-
-func (r *runner) tickerCheck() {
-	if r.Sensor == nil {
-		return
-	}
-	var duration int
-	if enableIdle, ok := r.Sensor.Labels[consts.ScaleToZeroEnable]; !ok || enableIdle != "true" {
-		return
-	}
-	idleTimeStr, _ := r.Sensor.Labels[consts.ScaleToZeroIdleTime]
-	duration, _ = strconv.Atoi(idleTimeStr)
-	if duration != 0 {
-		duration = 60
-	}
-
-	zap.L().Info(fmt.Sprintf("runner with ticker check %d second",  duration))
-	scaleTime := time.Duration(duration) * time.Second
-	ticker := time.NewTicker(scaleTime)
-	for {
-		select {
-		case t := <-ticker.C:
-			err := r.Actor.Check(r.CTX, scaleTime, r.EventLast)
-			if err != nil {
-				zap.L().Error(fmt.Sprintf("exec Check failed err %s at %d", err.Error(), t.UnixNano()))
-			}
-		}
-	}
 }
 
 func (r *runner) Run() error {
@@ -143,19 +118,43 @@ func (r *runner) Run() error {
 	if err != nil {
 		return err
 	}
-	go r.tickerCheck()
+
+	var scaleTime time.Duration
+	if idleEnable, ok := r.Sensor.Labels[consts.ScaleToZeroEnable]; ok || idleEnable == "true" {
+		idleTimeStr, _ := r.Sensor.Labels[consts.ScaleToZeroIdleTime]
+		duration, _ := strconv.Atoi(idleTimeStr)
+		if duration != 0 {
+			duration = 60
+		}
+
+		zap.L().Info(fmt.Sprintf("runner with ticker check %d second", duration))
+		scaleTime = time.Duration(duration) * time.Second
+	} else {
+		scaleTime = time.Hour * 24 *365 * 10
+	}
+	ticker := time.NewTicker(scaleTime)
+
 	for {
 		select {
 		case event := <-r.eventCh:
 			zap.L().Info(fmt.Sprintf("receive event %s-%s, exec actor", event.Type, event.Source))
+			r.EventMutex.Lock()
 			r.EventCount += 1
 			r.EventLast = time.Now()
+			r.EventMutex.Unlock()
 			err := r.Actor.Exec(r.CTX, event)
 			if err != nil {
 				err = errors.Wrapf(err, "actor exec with event %s-%s", event.Type, event.Source)
 				zap.L().Error("", zap.Error(err))
 			} else {
 				zap.L().Info(fmt.Sprintf("successfully exec event %s-%s with actor", event.Type, event.Source))
+			}
+		case t := <-ticker.C:
+			r.EventMutex.Lock()
+			err := r.Actor.Check(r.CTX, scaleTime, r.EventLast)
+			r.EventMutex.Unlock()
+			if err != nil {
+				zap.L().Error(fmt.Sprintf("exec Check failed err %s at %d", err.Error(), t.UnixNano()))
 			}
 		case <- r.stopCh:
 			zap.L().Warn("receive stop channel, stop!!!")
