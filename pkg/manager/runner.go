@@ -123,7 +123,7 @@ func (r *runner) Run() error {
 	if idleEnable, ok := r.Sensor.Labels[consts.ScaleToZeroEnable]; ok || idleEnable == "true" {
 		idleTimeStr, _ := r.Sensor.Labels[consts.ScaleToZeroIdleTime]
 		duration, _ := strconv.Atoi(idleTimeStr)
-		if duration != 0 {
+		if duration == 0 {
 			duration = 60
 		}
 
