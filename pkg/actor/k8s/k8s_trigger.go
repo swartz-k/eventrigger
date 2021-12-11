@@ -2,10 +2,12 @@ package k8s
 
 import (
 	"context"
+	"encoding/json"
 	"eventrigger.com/operator/common/consts"
 	commonEvent "eventrigger.com/operator/common/event"
 	"eventrigger.com/operator/common/k8s"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"strconv"
 
@@ -30,6 +32,16 @@ var clusterResources = map[string]bool{
 func ScaleObjTo(ctx context.Context, cli *kubernetes.Clientset, obj *unstructured.Unstructured, replicas int32) (err error) {
 	namespace := obj.GetNamespace()
 	name := obj.GetName()
+	patchData := map[string]interface{}{
+		"spec": map[string]interface{}{
+			"replicas": replicas,
+		},
+	}
+	patchByte, err := json.Marshal(patchData)
+	if err != nil {
+		return err
+	}
+
 	switch obj.GetKind() {
 	case consts.StatefulSetKind:
 		s, err := cli.AppsV1().StatefulSets(namespace).GetScale(ctx, name, metav1.GetOptions{})
@@ -37,7 +49,7 @@ func ScaleObjTo(ctx context.Context, cli *kubernetes.Clientset, obj *unstructure
 			return errors.Wrapf(err, "get scale for statefulset %s-%s", namespace, name)
 		}
 		if replicas == 0 || s.Spec.Replicas < replicas {
-			_, err = cli.AppsV1().StatefulSets(namespace).UpdateScale(ctx, name, s, metav1.UpdateOptions{})
+			_, err = cli.AppsV1().StatefulSets(namespace).Patch(ctx, s.Name, types.MergePatchType, patchByte, metav1.PatchOptions{})
 			if err != nil {
 				return errors.Wrapf(err, "scale statefulset %s-%s to %d", namespace, name, replicas)
 			}
@@ -45,13 +57,15 @@ func ScaleObjTo(ctx context.Context, cli *kubernetes.Clientset, obj *unstructure
 		return nil
 	case consts.DeploymentKind:
 		d, err := cli.AppsV1().Deployments(namespace).GetScale(ctx, name, metav1.GetOptions{})
+		if apierrors.IsNotFound(err) && replicas == 0 {
+			zap.L().Info("deployment not exist scale to zero success.")
+			return nil
+		}
 		if err != nil {
 			return errors.Wrapf(err, "get scale for deployment %s-%s", namespace, name)
 		}
 		if replicas == 0 || d.Spec.Replicas < replicas {
-			sd := *d
-			sd.Spec.Replicas = replicas
-			_, err = cli.AppsV1().Deployments(namespace).UpdateScale(ctx, name, &sd, metav1.UpdateOptions{})
+			_, err = cli.AppsV1().Deployments(namespace).Patch(ctx, d.Name, types.MergePatchType, patchByte, metav1.PatchOptions{})
 			if err != nil {
 				return errors.Wrapf(err, "scale deployment %s-%s to %d", namespace, name, replicas)
 			}
