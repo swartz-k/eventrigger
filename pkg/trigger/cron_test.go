@@ -1,4 +1,4 @@
-package monitor
+package trigger
 
 import (
 	"context"
@@ -19,7 +19,7 @@ func TestCronRunner(t *testing.T) {
 	stopCh := make(chan struct{})
 	eventCh := make(chan event.Event)
 
-	go runner.Run(ctx, eventCh, stopCh)
+	go runner.Run(ctx, eventCh)
 
 	go func() {
 		for {

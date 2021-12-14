@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"eventrigger.com/operator/common/consts"
 	commonEvent "eventrigger.com/operator/common/event"
-	"eventrigger.com/operator/common/k8s"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
@@ -155,20 +154,19 @@ func (r *k8sActor) Exec(ctx context.Context, event commonEvent.Event) error {
 func (r *k8sActor) Check(ctx context.Context, scaleTime time.Duration, lastEvent time.Time) error {
 	now := time.Now()
 	if lastEvent.Add(scaleTime).After(now) {
+		zap.L().Info(fmt.Sprintf("k8s actor check but gvr %s, name %s not meet scale time, lastEvent %s, scaleZero %s, now %s ",
+			r.GVR, r.Obj.GetName(), lastEvent, scaleTime, now))
 		return nil
 	}
-	obj, err := k8s.DecodeAndUnstructure(r.Source.Value)
-	if err != nil {
-		return err
-	}
+
 	zap.L().Info(fmt.Sprintf("resource gvr:%s, name %s enable scale to zero and time meet since last event",
-		r.GVR, obj.GetName()))
+		r.GVR, r.Obj.GetName()))
 	k8sCli, err := kubernetes.NewForConfig(r.Cfg)
 	if err != nil {
 		return err
 	}
 
-	err = ScaleObjTo(ctx, k8sCli, obj, 0)
+	err = ScaleObjTo(ctx, k8sCli, r.Obj, 0)
 	if err != nil {
 		return errors.Errorf("failed to scaleToZero. err: %+v\n", err)
 	}

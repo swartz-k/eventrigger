@@ -1,4 +1,4 @@
-package monitor
+package trigger
 
 import (
 	"github.com/Shopify/sarama"

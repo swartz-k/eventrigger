@@ -1,86 +1,65 @@
 package v1
 
-import (
-	"eventrigger.com/operator/pkg/api/core/common"
-	corev1 "k8s.io/api/core/v1"
-	k8stypes "k8s.io/apimachinery/pkg/types"
+type TriggerType string
+
+var (
+	MQTTTriggerType        TriggerType = "mqtt"
+	RedisTriggerType       TriggerType = "redis"
+	CronTriggerType        TriggerType = "cron"
+	KafkaTriggerType       TriggerType = "kafka"
+	HttpTriggerType        TriggerType = "http"
+	K8sHttpTriggerType     TriggerType = "k8s_http"
+	CloudEventsTriggerType TriggerType = "cloud_events"
+	K8sEventsTriggerType   TriggerType = "k8s_events"
 )
 
-// KubernetesResourceOperation refers to the type of operation performed on the K8s resource
-type KubernetesResourceOperation string
-
-// possible values for KubernetesResourceOperation
-const (
-	Create KubernetesResourceOperation = "create" // create the resource every event
-	Update KubernetesResourceOperation = "update" // updates the resource
-	Patch  KubernetesResourceOperation = "patch"  // patch resource
-	Delete KubernetesResourceOperation = "delete" // deletes the resource
-	Scale  KubernetesResourceOperation = "scale"  // scale resource to zero
-)
-
-// StandardK8STrigger is the standard Kubernetes resource trigger
-type StandardK8STrigger struct {
-	// Source of the K8s resource file(s)
-	Source *ArtifactLocation `json:"source,omitempty" protobuf:"bytes,1,opt,name=source"`
-	// Operation refers to the type of operation performed on the k8s resource.
-	// Default value is Create.
-	// +optional
-	Operation KubernetesResourceOperation `json:"operation,omitempty" protobuf:"bytes,2,opt,name=operation,casttype=KubernetesResourceOperation"`
-	// PatchStrategy controls the K8s object patching strategy when the trigger operation is specified as patch.
-	// possible values:
-	// "application/json-patch+json"
-	// "application/merge-patch+json"
-	// "application/strategic-merge-patch+json"
-	// "application/apply-patch+yaml".
-	// Defaults to "application/merge-patch+json"
-	// +optional
-	PatchStrategy k8stypes.PatchType `json:"patchStrategy,omitempty" protobuf:"bytes,3,opt,name=patchStrategy,casttype=k8s.io/apimachinery/pkg/types.PatchType"`
-	// ScaleToZeroTime whether to scale to zero if  now - last event receive >=  scaleToZeroTime second
-	ScaleToZeroTime int32 `json:"scaleToZeroTime,omitempty" protobuf:"bytes,4,opt,name=scaleToZeroTime"`
-	// ScaleMaxReplica whether to scale to zero if  now - last event receive >=  scaleToZeroTime second
-	ScaleMaxReplica int32 `json:"scaleMaxReplica,omitempty" protobuf:"bytes,5,opt,name=scaleMaxReplica"`
-	// ScaleMinReplica whether to scale to zero if  now - last event receive >=  scaleToZeroTime second
-	ScaleMinReplica int32 `json:"scaleMinReplica,omitempty" protobuf:"bytes,6,opt,name=scaleMinReplica"`
-	// LiveObject specifies whether the resource should be directly fetched from K8s instead
-	// of being marshaled from the resource artifact. If set to true, the resource artifact
-	// must contain the information required to uniquely identify the resource in the cluster,
-	// that is, you must specify "apiVersion", "kind" as well as "name" and "namespace" meta
-	// data.
-	// Only valid for operation type `update`
-	// +optional
-	LiveObject bool `json:"liveObject,omitempty" protobuf:"varint,7,opt,name=liveObject"`
+// Trigger common monitor which can produce events to trigger K8S resource.
+type Trigger struct {
+	// Type is which parse handler to exec
+	Type string `json:"type" protobuf:"bytes,1,name=type"`
+	// Meta is a unique name of this dependency
+	Meta map[string]string `json:"meta" protobuf:"bytes,2,name=meta"`
 }
 
-type HTTPTrigger struct {
-	// URL refers to the URL to send HTTP request to.
-	URL string `json:"url" protobuf:"bytes,1,opt,name=url"`
-
-	// Method refers to the type of the HTTP request.
-	// Refer https://golang.org/src/net/http/method.go for more info.
-	// Default value is POST.
-	// +optional
-	Method string `json:"method,omitempty" protobuf:"bytes,2,opt,name=method"`
-	// Timeout refers to the HTTP request timeout in seconds.
-	// Default value is 60 seconds.
-	// +optional
-	Timeout int64 `json:"timeout,omitempty" protobuf:"varint,3,opt,name=timeout"`
-	// Headers for the HTTP request.
-	// +optional
-	Headers map[string]string `json:"headers,omitempty" protobuf:"bytes,4,rep,name=headers"`
+type CronTrigger struct {
+	Cron string `json:"cron" yaml:"cron" protobuf:"bytes,1,opt,name=cron"`
 }
 
-// ArtifactLocation describes the source location for an external artifact
-type ArtifactLocation struct {
-	// S3 compliant artifact
-	S3 *S3Artifact `json:"s3,omitempty" protobuf:"bytes,1,opt,name=s3"`
-	// Inline artifact is embedded in sensor spec as a string
-	Inline *string `json:"inline,omitempty" protobuf:"bytes,2,opt,name=inline"`
-	// File artifact is artifact stored in a file
-	File *FileArtifact `json:"file,omitempty" protobuf:"bytes,3,opt,name=file"`
-	// URL to fetch the artifact from
-	URL *URLArtifact `json:"url,omitempty" protobuf:"bytes,4,opt,name=url"`
-	// Configmap that stores the artifact
-	Configmap *corev1.ConfigMapKeySelector `json:"configmap,omitempty" protobuf:"bytes,5,opt,name=configmap"`
-	// Resource is generic template for K8s resource
-	Resource *common.Resource `json:"resource,omitempty" protobuf:"bytes,6,opt,name=resource"`
+type MQTTTrigger struct {
+	URL      string `json:"url" yaml:"url" protobuf:"bytes,1,opt,name=url"`
+	Topic    string `json:"topic" yaml:"topic" protobuf:"bytes,2,opt,name=topic"`
+	Username string `json:"username" yaml:"username" protobuf:"bytes,3,opt,name=username"`
+	Password string `json:"password" yaml:"password" protobuf:"bytes,4,opt,name=password"`
+}
+
+type KafkaTrigger struct {
+	Host     string `json:"host" yaml:"host" protobuf:"bytes,1,opt,name=host"`
+	Database string `json:"database" yaml:"database" protobuf:"bytes,2,opt,name=database"`
+	Username string `json:"username" yaml:"username" protobuf:"bytes,3,opt,name=username"`
+	Password string `json:"password" yaml:"password" protobuf:"bytes,4,opt,name=password"`
+}
+
+type RedisTrigger struct {
+	Addr     string `json:"addr" yaml:"addr" protobuf:"bytes,1,opt,name=addr"`
+	Username string `json:"username" yaml:"username" protobuf:"bytes,2,opt,name=username"`
+	Password string `json:"password" yaml:"password" protobuf:"bytes,3,opt,name=password"`
+	DB       string `json:"db" yaml:"db" protobuf:"bytes,4,opt,name=db"`
+	Channel  string `json:"channel" yaml:"channel" protobuf:"bytes,5,opt,name=channel"`
+}
+
+type K8sEventsTrigger struct {
+	Source string `json:"source" yaml:"source" protobuf:"bytes,1,opt,name=source"`
+	Type   string `json:"type" yaml:"type" protobuf:"bytes,2,opt,name=type"`
+}
+
+type CloudEventsTrigger struct {
+	Source  string `json:"source" yaml:"source" protobuf:"bytes,1,opt,name=source"`
+	Type    string `json:"type" yaml:"type" protobuf:"bytes,2,opt,name=type"`
+	Version string `json:"version" yaml:"version" protobuf:"bytes,3,opt,name=version"`
+}
+
+type HttpTrigger struct {
+	Hosts   []string `json:"hosts" yaml:"hosts" protobuf:"bytes,1,opt,name=hosts"`
+	Headers []string `yaml:"headers" yaml:"headers" protobuf:"bytes,2,opt,name=headers"`
+	Suffix  string   `yaml:"suffix" yaml:"suffix" protobuf:"bytes,3,opt,name=suffix"`
 }

@@ -18,7 +18,7 @@ type k8sActor struct {
 	Cfg    *rest.Config
 }
 
-func NewK8SActor(t *v1.StandardK8STrigger) (actor *k8sActor, err error) {
+func NewK8SActor(t *v1.StandardK8SActor) (actor *k8sActor, err error) {
 	if t.Source == nil {
 		return nil, errors.New("k8s actor resource is nil")
 	}

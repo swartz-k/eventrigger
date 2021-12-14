@@ -1,4 +1,4 @@
-package monitor
+package trigger
 
 import (
 	"context"
@@ -53,7 +53,7 @@ func NewCronMonitor(meta map[string]string) (*CronMonitor, error) {
 		Scheduler:  scheduler,
 		Cron:       c,
 		CronMapper: map[cron.EntryID]chan struct{}{},
-		StopCh: make(chan struct{}),
+		StopCh:     make(chan struct{}),
 	}
 
 	return m, nil
@@ -82,7 +82,7 @@ func (m *CronMonitor) Run(ctx context.Context, eventChannel chan event.Event) er
 
 	go m.Cron.Run()
 	select {
-	case <- m.StopCh:
+	case <-m.StopCh:
 		for _, ch := range m.CronMapper {
 			ch <- struct{}{}
 		}

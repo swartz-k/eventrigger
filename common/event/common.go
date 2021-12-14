@@ -1,7 +1,6 @@
 package event
 
 import (
-	"context"
 	uuid2 "k8s.io/apimachinery/pkg/util/uuid"
 	"strconv"
 	"time"
@@ -23,11 +22,6 @@ type Monitor struct {
 	Source    string `json:"source" yaml:"source"`
 	Type      string `json:"type" yaml:"type"`
 	Version   string `json:"version" yaml:"version"`
-}
-
-// Controller for listen and receive events like request, eg: cloud events、kubernetes events
-type Controller interface {
-	Run(ctx context.Context, eventChannel chan Event) error
 }
 
 func NewSimpleEvent(t, source, data string) Event {

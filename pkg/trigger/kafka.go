@@ -1,4 +1,4 @@
-package monitor
+package trigger
 
 import (
 	"context"
@@ -236,14 +236,14 @@ func (m *KafkaMonitor) Run(ctx context.Context, eventChannel chan event.Event) e
 			for {
 				select {
 				case message := <-pc.Messages():
-					eventChannel <- event.NewSimpleEvent(string(v1.KafkaMonitorType), message.Topic, string(message.Value))
+					eventChannel <- event.NewSimpleEvent(string(v1.KafkaTriggerType), message.Topic, string(message.Value))
 				}
 			}
 		}(pc)
 	}
 
 	select {
-	case <- m.StopCh:
+	case <-m.StopCh:
 		fmt.Println("stop kafka")
 		return nil
 	default:

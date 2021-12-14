@@ -1,4 +1,4 @@
-package monitor
+package trigger
 
 import (
 	"bytes"
@@ -34,7 +34,7 @@ type K8sHttpOptions struct {
 	Suffix  string
 }
 
-type K8sHttpMonitor struct {
+type K8sHttpTrigger struct {
 	Ctx  context.Context
 	Opts *K8sHttpOptions
 	// endpoint
@@ -64,12 +64,12 @@ func parseK8sHttpMeta(meta map[string]string) (opts *K8sHttpOptions, err error) 
 	return opts, nil
 }
 
-func NewK8sHttpMonitor(meta map[string]string, trigger *v1.Trigger) (*K8sHttpMonitor, error) {
-	if trigger == nil || trigger.Template == nil || trigger.Template.K8s == nil || trigger.Template.K8s.Source == nil ||
-		trigger.Template.K8s.Source.Resource == nil {
+func NewK8sHttpTrigger(meta map[string]string, actor *v1.Actor) (*K8sHttpTrigger, error) {
+	if actor == nil || actor.Template == nil || actor.Template.K8s == nil || actor.Template.K8s.Source == nil ||
+		actor.Template.K8s.Source.Resource == nil {
 		return nil, errors.New("http monitor only support k8s source and cannot be null")
 	}
-	op := trigger.Template.K8s.Operation
+	op := actor.Template.K8s.Operation
 	switch op {
 	case v1.Scale:
 		break
@@ -82,13 +82,13 @@ func NewK8sHttpMonitor(meta map[string]string, trigger *v1.Trigger) (*K8sHttpMon
 	if err != nil {
 		return nil, errors.Wrap(err, "parse http meta")
 	}
-	resource := trigger.Template.K8s.Source.Resource
+	resource := actor.Template.K8s.Source.Resource
 	obj, err := k8s2.DecodeAndUnstructure(resource.Value)
 	if err != nil {
 		return nil, err
 	}
 
-	m := &K8sHttpMonitor{
+	m := &K8sHttpTrigger{
 		Opts:              opts,
 		EndpointNamespace: obj.GetNamespace(),
 		Retry:             10,
@@ -123,7 +123,7 @@ func NewK8sHttpMonitor(meta map[string]string, trigger *v1.Trigger) (*K8sHttpMon
 	return m, nil
 }
 
-func (m *K8sHttpMonitor) Handler(c *gin.Context) (code int, resp interface{}, err error) {
+func (m *K8sHttpTrigger) Handler(c *gin.Context) (code int, resp interface{}, err error) {
 	// send event to actor
 	var data string
 	rawData, err := c.GetRawData()
@@ -135,7 +135,7 @@ func (m *K8sHttpMonitor) Handler(c *gin.Context) (code int, resp interface{}, er
 	c.Request.Body = ioutil.NopCloser(bytes.NewBuffer(rawData))
 
 	requestUUID := c.Request.Header.Get(consts.UUIDLabelHeader)
-	sendEvent := event.NewEvent("", string(v1.HttpMonitorType), "", "", data, requestUUID)
+	sendEvent := event.NewEvent("", string(v1.HttpTriggerType), "", "", data, requestUUID)
 	m.EventChannel <- sendEvent
 
 	eventData, err := json2.Marshal(sendEvent)
@@ -162,7 +162,7 @@ func (m *K8sHttpMonitor) Handler(c *gin.Context) (code int, resp interface{}, er
 			return nil
 		}
 
-		proxy.ErrorHandler = func (rw http.ResponseWriter, req *http.Request, err error) {
+		proxy.ErrorHandler = func(rw http.ResponseWriter, req *http.Request, err error) {
 			zap.L().Info(fmt.Sprintf("http: proxy error: %v", err))
 			rw.WriteHeader(http.StatusBadGateway)
 			resp := server.HttpResponse{Code: 500, Data: err.Error()}
@@ -185,10 +185,9 @@ func (m *K8sHttpMonitor) Handler(c *gin.Context) (code int, resp interface{}, er
 		return 500, msg, err
 	}
 
-	return 0, "success", nil
 }
 
-func (m *K8sHttpMonitor) GetEndpointUrl() (string, error) {
+func (m *K8sHttpTrigger) GetEndpointUrl() (string, error) {
 	cfg, err := k8s2.GetKubeConfig()
 	if err != nil {
 		err = errors.Wrap(err, "get kube config for get endpoint url")
@@ -254,10 +253,9 @@ func (m *K8sHttpMonitor) GetEndpointUrl() (string, error) {
 	default:
 		return "", errors.New(fmt.Sprintf("endpoint type %s not support", m.EndpointType))
 	}
-	return "", errors.New("cannot find right endpoint")
 }
 
-func (m *K8sHttpMonitor) Run(ctx context.Context, eventChannel chan event.Event) error {
+func (m *K8sHttpTrigger) Run(ctx context.Context, eventChannel chan event.Event) error {
 	m.Ctx = ctx
 	m.EventChannel = eventChannel
 	for _, host := range m.Opts.Hosts {
@@ -274,8 +272,7 @@ func (m *K8sHttpMonitor) Run(ctx context.Context, eventChannel chan event.Event)
 	return nil
 }
 
-
-func (m *K8sHttpMonitor) Stop() error {
+func (m *K8sHttpTrigger) Stop() error {
 	for _, host := range m.Opts.Hosts {
 		server.GlobalHttpServer.DeleteHostMap(host)
 	}

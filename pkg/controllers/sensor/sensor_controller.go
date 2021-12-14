@@ -39,9 +39,9 @@ const (
 
 // SensorReconciler reconciles a Sensor object
 type SensorReconciler struct {
-	Client      client.Client
-	Scheme      *runtime.Scheme
-	logger      *zap.SugaredLogger
+	Client client.Client
+	Scheme *runtime.Scheme
+	logger *zap.SugaredLogger
 }
 
 //+kubebuilder:rbac:groups=core.eventrigger.com,resources=sensors,verbs=get;list;watch;create;update;patch;delete

@@ -20,13 +20,12 @@ type HttpServer struct {
 }
 
 type HttpResponse struct {
-	Code int `json:"code"`
-	Msg string `json:"msg"`
+	Code int         `json:"code"`
+	Msg  string      `json:"msg"`
 	Data interface{} `json:"data"`
 }
 
 type Handler func(ctx *gin.Context) (int, interface{}, error)
-
 
 func NewHttpServer() (server *HttpServer) {
 	server = &HttpServer{
@@ -53,8 +52,7 @@ func (s *HttpServer) CommonDispatchHandler(c *gin.Context) {
 		err := errors.New("")
 		code, data, err = handler(c)
 		if err != nil {
-			msg := HttpResponse{Msg:
-				err.Error()}
+			msg := HttpResponse{Msg: err.Error()}
 			c.JSON(code, msg)
 			return
 		}
@@ -65,7 +63,7 @@ func (s *HttpServer) CommonDispatchHandler(c *gin.Context) {
 			c.JSON(code, data)
 			return
 		}
-		zap.L().Info(fmt.Sprintf("request proxy of host: %s done, data %s, code %d, err %+v",
+		zap.L().Info(fmt.Sprintf("request proxy of host: %s done, data %+v, code %d, err %+v",
 			c.Request.Host, data, code, err))
 		return
 	}
