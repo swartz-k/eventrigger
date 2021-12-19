@@ -1,4 +1,4 @@
-package monitor
+package trigger
 
 import (
 	"eventrigger.com/operator/common/server"
@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func ReverseHandler(c *gin.Context) (code int, data interface{}, err error){
+func ReverseHandler(c *gin.Context) (code int, data interface{}, err error) {
 	director := func(req *http.Request) {
 		req.URL.Scheme = "http"
 		req.URL.Host = "www.baidu.com"

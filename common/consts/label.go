@@ -14,8 +14,8 @@ const (
 	ScaleToZeroIdleTime = "eventrigger.com/scale-to-zero-idle-time"
 
 	InjectIngressEnable = "eventrigger.com/ingress-enable"
-	InjectIngressName = "eventrigger.com/ingress-name"
+	InjectIngressName   = "eventrigger.com/ingress-name"
 
-	InjectIstioEnable = "eventrigger.com/istio-enable"
+	InjectIstioEnable         = "eventrigger.com/istio-enable"
 	InjectIstioVirtualService = "eventrigger.com/istio-virtual-service"
 )

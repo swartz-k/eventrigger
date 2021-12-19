@@ -1,4 +1,4 @@
-package monitor
+package trigger
 
 import (
 	"context"
@@ -172,7 +172,7 @@ func TestMQTTRunner(t *testing.T) {
 
 	eventChannel := make(chan event.Event)
 	stopCh := make(<-chan struct{})
-	go m.Run(ctx, eventChannel, stopCh)
+	go m.Run(ctx, eventChannel)
 
 	t.Log("mqtt running")
 	for {

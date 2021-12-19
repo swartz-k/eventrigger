@@ -1,9 +1,8 @@
-package monitor
+package server
 
 import (
-	"context"
-	"eventrigger.com/operator/common/consts"
 	cEvent "eventrigger.com/operator/common/event"
+	"eventrigger.com/operator/common/k8s"
 	"fmt"
 	"github.com/pkg/errors"
 	"github.com/viney-shih/go-lock"
@@ -21,41 +20,38 @@ import (
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/client-go/tools/clientcmd"
-	"os"
 )
 
-type eventController struct {
-	Cfg             *rest.Config
-	ClientSet       *kubernetes.Clientset
-	InformerFactory informers.SharedInformerFactory
-	EventLister     listerCoreV1.EventLister
-	EventSynced     cache.InformerSynced
+var (
+	GlobalK8sEventsMonitor *k8sEventsMonitor
+)
 
-	EventChannel chan cEvent.Event
-	Workqueue    workqueue.RateLimitingInterface
-	StopChan     <-chan struct{}
+type k8sEventsMonitor struct {
+	Cfg       *rest.Config
+	ClientSet *kubernetes.Clientset
 
+	InformerFactory      informers.SharedInformerFactory
+	EventsLister         listerCoreV1.EventLister
+	EventsSynced         cache.InformerSynced
+	Workqueue            workqueue.RateLimitingInterface
 	EventInformerCacheRW *lock.CASMutex
+
+	EventChannelMapper map[string]*chan cEvent.Event
+	StopChan           chan struct{}
 }
 
-func NewEventController(stopChan <-chan struct{}) (controller cEvent.Controller, err error) {
-	c := &eventController{
-		StopChan:             stopChan,
-		Workqueue:            workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "events"),
+func NewK8sEventsMonitor() (monitor *k8sEventsMonitor, err error) {
+	c := &k8sEventsMonitor{
+		Workqueue:            workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "k8sEvents"),
 		EventInformerCacheRW: lock.NewCASMutex(),
+		EventChannelMapper:   make(map[string]*chan cEvent.Event),
+		StopChan:             make(chan struct{}),
 	}
-	kubeConfig := os.Getenv(consts.EnvDefaultKubeConfig)
-
-	if kubeConfig != "" {
-		c.Cfg, err = clientcmd.BuildConfigFromFlags("", kubeConfig)
-	} else {
-		c.Cfg, err = rest.InClusterConfig()
-	}
+	cfg, err := k8s.GetKubeConfig()
 	if err != nil {
-		return nil, errors.Wrap(err, "init from config")
+		return nil, err
 	}
-
+	c.Cfg = cfg
 	c.ClientSet, err = kubernetes.NewForConfig(c.Cfg)
 	if err != nil {
 		return nil, errors.Wrap(err, "new for k8s config")
@@ -63,8 +59,8 @@ func NewEventController(stopChan <-chan struct{}) (controller cEvent.Controller,
 
 	c.InformerFactory = informers.NewSharedInformerFactory(c.ClientSet, 0)
 	informer := c.InformerFactory.Core().V1().Events()
-	c.EventLister = informer.Lister()
-	c.EventSynced = informer.Informer().HasSynced
+	c.EventsLister = informer.Lister()
+	c.EventsSynced = informer.Informer().HasSynced
 	informer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			event, ok := obj.(*v1.Event)
@@ -73,27 +69,30 @@ func NewEventController(stopChan <-chan struct{}) (controller cEvent.Controller,
 			}
 			zap.L().Info("new event", zap.String("name", event.Name), zap.String("type", event.Type),
 				zap.String("source", event.Source.String()))
-			ce := cEvent.Event{
-				Namespace: event.Namespace,
-				Source:    event.Source.String(),
-				Type:      event.Type,
-				Version:   event.APIVersion,
-				Data:      event.Message,
+			key := UniqueK8sEventKey(event.Kind, event.Type, event.APIVersion, event.Namespace)
+			channel, ok := c.EventChannelMapper[key]
+			if ok {
+				ce := cEvent.Event{
+					Namespace: event.Namespace,
+					Source:    event.Source.String(),
+					Type:      event.Type,
+					Version:   event.APIVersion,
+					Data:      event.Message,
+				}
+				*channel <- ce
 			}
-			c.EventChannel <- ce
 		},
 	})
 	return c, nil
 }
 
-func (c *eventController) Run(ctx context.Context, eventChannel chan cEvent.Event) error {
-	c.EventChannel = eventChannel
+func (c *k8sEventsMonitor) Run() error {
 	c.InformerFactory.Start(c.StopChan)
 	defer runtime.HandleCrash()
 	defer c.Workqueue.ShutDown()
 
 	zap.L().Info("Waiting for informer caches to sync")
-	if ok := cache.WaitForNamedCacheSync("events", c.StopChan, c.EventSynced); !ok {
+	if ok := cache.WaitForNamedCacheSync("k8sEvents", c.StopChan, c.EventsSynced); !ok {
 		return fmt.Errorf("failed to wait for caches to sync")
 	}
 
@@ -110,12 +109,12 @@ func (c *eventController) Run(ctx context.Context, eventChannel chan cEvent.Even
 	return nil
 }
 
-func (c *eventController) runWorker() {
+func (c *k8sEventsMonitor) runWorker() {
 	for c.processNextWorkItem() {
 	}
 }
 
-func (c *eventController) processNextWorkItem() bool {
+func (c *k8sEventsMonitor) processNextWorkItem() bool {
 	obj, shutdown := c.Workqueue.Get()
 
 	if shutdown {
@@ -164,7 +163,7 @@ func (c *eventController) processNextWorkItem() bool {
 	return true
 }
 
-func (c *eventController) syncHandler(key string) error {
+func (c *k8sEventsMonitor) syncHandler(key string) error {
 	// Convert the namespace/name string into a distinct namespace and name
 	namespace, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
@@ -173,7 +172,7 @@ func (c *eventController) syncHandler(key string) error {
 	}
 
 	// Get the Foo resource with this namespace/name
-	_, err = c.EventLister.Events(namespace).Get(name)
+	_, err = c.EventsLister.Events(namespace).Get(name)
 	if err != nil {
 		// The Foo resource may no longer exist, in which case we stop
 		// processing.
@@ -186,5 +185,16 @@ func (c *eventController) syncHandler(key string) error {
 	}
 
 	return nil
+}
 
+func UniqueK8sEventKey(eventKind, eventType, eventAPIVersion, namespace string) string {
+	return fmt.Sprintf("%s%s-%s-%s", eventKind, eventType, eventAPIVersion, namespace)
+}
+
+func (c *k8sEventsMonitor) UpdateMonitor(key string, channel *chan cEvent.Event) {
+	c.EventChannelMapper[key] = channel
+}
+
+func (c *k8sEventsMonitor) DeleteMonitor(key string) {
+	delete(c.EventChannelMapper, key)
 }

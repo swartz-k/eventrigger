@@ -1,4 +1,4 @@
-package monitor
+package trigger
 
 import (
 	"context"
@@ -54,6 +54,7 @@ func NewHttpMonitor(meta map[string]string) (*HttpMonitor, error) {
 
 	return m, nil
 }
+
 func (m *HttpMonitor) Handler(c *gin.Context) (int, interface{}, error) {
 	// send event to actor
 	uuid := c.Request.Header.Get(consts.UUIDLabelHeader)
@@ -64,7 +65,7 @@ func (m *HttpMonitor) Handler(c *gin.Context) (int, interface{}, error) {
 	} else {
 		data = string(rawData)
 	}
-	sEvent := event.NewEvent("", string(v1.HttpMonitorType), "", "", data, uuid)
+	sEvent := event.NewEvent("", string(v1.HttpTriggerType), "", "", data, uuid)
 	m.EventChannel <- sEvent
 	return 0, sEvent, nil
 }

@@ -1,12 +1,12 @@
 package consts
 
 const (
-	ApiVersion = "apps/v1"
+	ApiVersion      = "apps/v1"
 	StatefulSetKind = "StatefulSet"
-	DeploymentKind = "Deployment"
+	DeploymentKind  = "Deployment"
 
 	PodApiVersion = "v1"
-	PodKind = "Pod"
+	PodKind       = "Pod"
 
 	JobKind = "Job"
 )

@@ -89,10 +89,9 @@ type Operator struct {
 	RunnerChannelMap map[string]RunnerInterface
 
 	// controller
-	ErrorGroup     errsgroup.Group
-	WaitGroup      sync.WaitGroup
-	Controller     *manager.Manager
-	MonitorChannel chan eventriggerv1.Monitor
+	ErrorGroup errsgroup.Group
+	WaitGroup  sync.WaitGroup
+	Controller *manager.Manager
 
 	InformerFactory externalversions.SharedInformerFactory
 	Workqueue       workqueue.RateLimitingInterface
@@ -123,7 +122,6 @@ func NewOperator(options *OperatorOptions) (op *Operator, err error) {
 		CTX:              context.Background(),
 		Options:          *options,
 		RunnerChannelMap: make(map[string]RunnerInterface),
-		MonitorChannel:   make(chan eventriggerv1.Monitor, 100),
 		Workqueue:        workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), consts.SensorName),
 	}
 
@@ -140,8 +138,8 @@ func NewOperator(options *OperatorOptions) (op *Operator, err error) {
 	}
 
 	if err = (&sensor.SensorReconciler{
-		Client:      mgr.GetClient(),
-		Scheme:      mgr.GetScheme(),
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		return nil, errors.Wrap(err, "unable to create controller Sensor")
 	}
@@ -277,9 +275,25 @@ func (op *Operator) Run() error {
 	undo := zap.ReplaceGlobals(logger)
 	defer undo()
 
+	/* global server resource
+	GlobalHttpServer every k8s_http request will proxy
+	GlobalCloudEventsServer receive cloud events and filter event
+	GlobalK8sEventsMonitor listener filter
+	*/
 	op.ErrorGroup.Go(func() error {
 		return server.GlobalHttpServer.Run(fmt.Sprintf(":%d", op.Options.Port))
 	})
+	op.ErrorGroup.Go(func() error {
+		return server.GlobalCloudEventsServer.Run(fmt.Sprintf(":%d", op.Options.CloudEventsPort))
+	})
+	op.ErrorGroup.Go(func() error {
+		server.GlobalK8sEventsMonitor, err = server.NewK8sEventsMonitor()
+		if err != nil {
+			return errors.Wrap(err, "cannot parse k8s events monitor")
+		}
+		return server.GlobalK8sEventsMonitor.Run()
+	})
+
 	zap.L().Info("Starting workers")
 	op.InformerFactory.Start(op.stopCh)
 

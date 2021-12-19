@@ -1,4 +1,4 @@
-package monitor
+package trigger
 
 import (
 	"context"
@@ -46,7 +46,7 @@ func TestRedisRunnerRun(t *testing.T) {
 	stopCh := make(chan struct{})
 	eventChannel := make(chan event.Event)
 	redisRunner := RedisMonitor{Opts: redisOpts}
-	go redisRunner.Run(ctx, eventChannel, stopCh)
+	go redisRunner.Run(ctx, eventChannel)
 
 	for {
 		select {

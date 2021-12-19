@@ -1,4 +1,4 @@
-package monitor
+package trigger
 
 import (
 	"context"
@@ -52,7 +52,7 @@ func NewRedisMonitor(meta map[string]string) (*RedisMonitor, error) {
 	}
 
 	m := &RedisMonitor{
-		Opts: opts,
+		Opts:   opts,
 		StopCh: make(chan struct{}),
 	}
 

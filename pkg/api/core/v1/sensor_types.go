@@ -23,8 +23,8 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-// TriggerTemplate is the template that describes trigger specification.
-type TriggerTemplate struct {
+// ActorTemplate is the template that describes trigger specification.
+type ActorTemplate struct {
 	// Name is a unique name of the action to take.
 	Name string `json:"name" protobuf:"bytes,1,opt,name=name"`
 	// Conditions is the conditions to execute the trigger.
@@ -33,25 +33,27 @@ type TriggerTemplate struct {
 	Conditions string `json:"conditions,omitempty" protobuf:"bytes,2,opt,name=conditions"`
 	// StandardK8STrigger refers to the trigger designed to create or update a generic Kubernetes resource.
 	// +optional
-	K8s *StandardK8STrigger `json:"k8s,omitempty" protobuf:"bytes,3,opt,name=k8s"`
+	K8s *StandardK8SActor `json:"k8s,omitempty" protobuf:"bytes,3,opt,name=k8s"`
 
-	HTTP *HTTPTrigger `json:"http,omitempty" protobuf:"bytes,5,opt,name=http"`
+	HTTP *HTTPActor `json:"http,omitempty" protobuf:"bytes,5,opt,name=http"`
 	// AWSLambda refers to the trigger designed to invoke AWS Lambda function with with on-the-fly constructable payload.
 	// +optional
 }
 
-// Trigger is an action taken, output produced, an events created, a message sent
-type Trigger struct {
+// Actor is an action taken, output produced, an events created, a message sent
+type Actor struct {
 	// Template describes the trigger specification.
-	Template *TriggerTemplate `json:"template,omitempty" protobuf:"bytes,1,opt,name=template"`
+	Template *ActorTemplate `json:"template,omitempty" protobuf:"bytes,1,opt,name=template"`
 }
 
 // SensorSpec defines the desired state of Sensor
 type SensorSpec struct {
 	// Foo is an example field of Sensor. Edit sensor_types.go to remove/update
-	Monitor Monitor `json:"monitor"  protobuf:"bytes,1,name=monitor"`
+	Trigger Trigger `json:"trigger"  protobuf:"bytes,1,name=trigger" yaml:"trigger"`
 	// Triggers is a list of the things that this sensor evokes. These are the outputs from this sensor.
-	Trigger Trigger `json:"trigger" protobuf:"bytes,3,rep,name=trigger"`
+	Actor Actor `json:"actor" protobuf:"bytes,2,rep,name=actor" yaml:"actor"`
+
+	Target Target `json:"target" protobuf:"bytes,3,rep,name=target" yaml:"target"`
 }
 
 // SensorStatus defines the observed state of Sensor
