@@ -14,7 +14,6 @@ func main() {
 		Use:   "operator",
 		Short: "Event trigger operator",
 		RunE: func(cmd *cobra.Command, args []string) error {
-
 			operator, err := manager.NewOperator(opt)
 			if err != nil {
 				return err
@@ -26,6 +25,7 @@ func main() {
 	rootCmd.Flags().UintVar(&opt.CloudEventsPort, "cloud-events-port", 7787, "Cloud Events Port")
 	rootCmd.Flags().IntVar(&opt.MetricsPort, "metrics-port", 7788, "Operator Metrics Port")
 	rootCmd.Flags().IntVar(&opt.HealthPort, "health-port", 7789, "Operator Health Port")
+	rootCmd.Flags().BoolVar(&opt.Debug, "debug", false, "Enable Debug")
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Printf("exit with err: %s \n", err)
 		os.Exit(1)

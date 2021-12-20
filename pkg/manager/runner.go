@@ -91,7 +91,8 @@ func ParseSensorActor(spec *v1.SensorSpec) (actor actor.Interface, err error) {
 
 func ParseSensorTarget(spec *v1.SensorSpec) (tar target.Interface, err error) {
 	if spec == nil || len(spec.Target.Meta) == 0 {
-		return nil, errors.New(fmt.Sprintf("sensor %+v target or meta is nil", spec))
+		zap.L().Info("sensor does not have target")
+		return nil, nil
 	}
 	m := spec.Target
 	switch m.Type {
@@ -111,11 +112,11 @@ func NewRunner(sensor *v1.Sensor) (r RunnerInterface, err error) {
 	}
 	tri, err := ParseSensorTrigger(&sensor.Spec)
 	if err != nil {
-		return nil, errors.Wrapf(err, "parse sensor %s/%s monitor", sensor.Name, sensor.Namespace)
+		return nil, errors.Wrapf(err, "parse sensor %s/%s trigger", sensor.Name, sensor.Namespace)
 	}
 	act, err := ParseSensorActor(&sensor.Spec)
 	if err != nil {
-		return nil, errors.Wrapf(err, "parse sensor %s/%s trigger", sensor.Name, sensor.Namespace)
+		return nil, errors.Wrapf(err, "parse sensor %s/%s actor", sensor.Name, sensor.Namespace)
 	}
 	tar, err := ParseSensorTarget(&sensor.Spec)
 	if err != nil {
@@ -129,7 +130,7 @@ func NewRunner(sensor *v1.Sensor) (r RunnerInterface, err error) {
 		Target:     tar,
 		Sensor:     sensor,
 		EventLast:  time.Now(),
-		eventCh:    make(chan event.Event),
+		eventCh:    make(chan event.Event, 2),
 		stopCh:     make(chan struct{}, 2),
 		EventMutex: sync.Mutex{},
 	}
@@ -172,10 +173,12 @@ func (r *runner) Run() error {
 			} else {
 				zap.L().Info(fmt.Sprintf("successfully exec event %s-%s with actor", event.Type, event.Source))
 			}
-			err = r.Target.Exec(r.CTX)
-			if err != nil {
-				err = errors.Wrapf(err, "target exec")
-				zap.L().Error("", zap.Error(err))
+			if r.Target != nil {
+				err = r.Target.Exec(r.CTX)
+				if err != nil {
+					err = errors.Wrapf(err, "target exec")
+					zap.L().Error("", zap.Error(err))
+				}
 			}
 		case t := <-ticker.C:
 			r.EventMutex.Lock()

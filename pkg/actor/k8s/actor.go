@@ -43,5 +43,8 @@ func NewK8SActor(t *v1.StandardK8SActor) (actor *k8sActor, err error) {
 		Cfg:    cfg,
 	}
 
+	// todo: obj reference with sensor version
+	// delete old obj if obj updated
+
 	return actor, nil
 }

@@ -51,6 +51,8 @@ func (s *HttpServer) CommonDispatchHandler(c *gin.Context) {
 		code := 0
 		err := errors.New("")
 		code, data, err = handler(c)
+		zap.L().Info(fmt.Sprintf("request proxy of host: %s done, data %+v, code %d, err %+v",
+			c.Request.Host, data, code, err))
 		if err != nil {
 			msg := HttpResponse{Msg: err.Error()}
 			c.JSON(code, msg)
@@ -63,8 +65,7 @@ func (s *HttpServer) CommonDispatchHandler(c *gin.Context) {
 			c.JSON(code, data)
 			return
 		}
-		zap.L().Info(fmt.Sprintf("request proxy of host: %s done, data %+v, code %d, err %+v",
-			c.Request.Host, data, code, err))
+
 		return
 	}
 	for key, values := range c.Request.Header {

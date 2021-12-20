@@ -72,7 +72,7 @@ type OperatorOptions struct {
 	MetricsPort int
 	HealthPort  int
 	LeaderElect bool
-
+	Debug       bool
 	// event
 	CloudEventsPort uint `json:"cloud_events_port" yaml:"cloud_events_port"`
 
@@ -265,7 +265,9 @@ func (op *Operator) Run() error {
 	var cfg zap.Config = zap.NewProductionConfig()
 
 	cfg.EncoderConfig.EncodeTime = zapcore.RFC3339TimeEncoder
-
+	if op.Options.Debug {
+		cfg.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
+	}
 	logger, err := cfg.Build()
 	if err != nil {
 		return err

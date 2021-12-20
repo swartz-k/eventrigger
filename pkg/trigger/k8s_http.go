@@ -143,6 +143,7 @@ func (m *K8sHttpTrigger) Handler(c *gin.Context) (code int, resp interface{}, er
 		return 0, nil, err
 	}
 	b64Event := base64.StdEncoding.EncodeToString(eventData)
+	zap.L().Debug(fmt.Sprintf("receive request and generate event %+v", sendEvent))
 	endpoint, err := m.GetEndpointUrl()
 	if endpoint != "" && err == nil {
 		director := func(req *http.Request) {
@@ -202,7 +203,7 @@ func (m *K8sHttpTrigger) GetEndpointUrl() (string, error) {
 
 	labelSelector := labels.Set(m.MatchLabels).AsSelector()
 	watchOptions := v12.ListOptions{LabelSelector: labelSelector.String()}
-
+	zap.L().Debug(fmt.Sprintf("get http endpoint url with labels %s in ns %s", labelSelector.String(), m.EndpointNamespace))
 	timeoutTicker := time.NewTicker(5 * time.Minute)
 
 	switch m.EndpointType {
