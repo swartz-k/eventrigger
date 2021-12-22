@@ -67,8 +67,6 @@ func NewK8sEventsMonitor() (monitor *k8sEventsMonitor, err error) {
 			if !ok {
 				zap.L().Error("failed")
 			}
-			zap.L().Info("new event", zap.String("name", event.Name), zap.String("type", event.Type),
-				zap.String("source", event.Source.String()))
 			key := UniqueK8sEventKey(event.Kind, event.Type, event.APIVersion, event.Namespace)
 			channel, ok := c.EventChannelMapper[key]
 			if ok {
